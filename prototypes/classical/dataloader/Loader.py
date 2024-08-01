@@ -1,6 +1,7 @@
 import pandas as pd
 import cv2 as cv
 import os
+import numpy as np
 
 
 class IsiCancerData:
@@ -10,13 +11,49 @@ class IsiCancerData:
         self.index = 0
         self.length = self.train.shape[0]
         self.train_images_path = config_file["TRAIN_IMAGES_PATH"]
+        self.image_width = config_file["IMAGE_WIDTH"]
+        self.image_height = config_file["IMAGE_HEIGHT"]
+        self.batch_size = config_file["BATCH_SIZE"]
 
     def get_item(self):
-        if self.index > self.length:
+        if self.index >= self.length:
             return None
 
-        image = cv.imread(os.join(self.train_images_path[self.index]), self.train[self.index][0])
+        # first one is the image id.
+        image = cv.imread(os.path.join(self.train_images_path, self.train[self.index][0]+".jpg"))
+        resized_image = cv.resize(
+            image, (self.image_height, self.image_width), interpolation=cv.INTER_CUBIC
+        )
         labels = self.train[self.index][1:]
         self.index += 1
 
-        return image, labels
+        return resized_image, labels
+
+    def reset_index(self):
+        self.index = 0
+
+    def get_next_batch(self):
+        np.random.shuffle(self.train)
+
+        for i in range(self.batch_size, self.length, self.batch_size):
+
+            # first one is the image id.
+            images = np.zeros((self.batch_size, self.image_height, self.image_width, 3), dtype=np.uint8)
+
+            for e in range(self.batch_size):
+                if i + e >= self.length:
+                    print("break")
+                    break
+
+                image = cv.imread(os.path.join(self.train_images_path, self.train[i+e][0] + ".jpg"))
+                image = cv.resize(
+                    image, (self.image_height, self.image_width), interpolation=cv.INTER_CUBIC
+                )
+                images[e] = image
+
+            labels = self.train[i: i+self.batch_size][1:]
+
+            yield images, labels
+
+    def total_samples(self):
+        return (self.length//self.batch_size)

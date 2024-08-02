@@ -12,7 +12,8 @@ import numpy as np
 from tqdm.auto import tqdm
 import os
 import logging
-from joblib import Parallel, delayed, parallel_backend
+from joblib import Parallel, delayed
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(filename='myapp.log', level=logging.INFO)
@@ -20,7 +21,6 @@ logging.basicConfig(filename='myapp.log', level=logging.INFO)
 with open("config.json", "r") as f:
     config = json.load(f)
 
-training_dict = {}
 dataset = IsiCancerData(config)
 
 gabor_banks = []
@@ -30,18 +30,18 @@ for theta in [np.pi, np.pi/2, np.pi/4]:
 lbp_transformer = LBPTransformer(p=8, r=1, method="ror")
 lbp_vectorizer = LBPVectorizer()
 
-FEATURE_VECTOR_PATH = os.path.join(config["VECTORS_PATH"], "gabor", f"{config['IMAGE_WIDTH']}_{config['IMAGE_HEIGHT']}")
+FEATURE_VECTOR_PATH = os.path.join(config["VECTORS_PATH"], "gabor_attention_maps", f"{config['IMAGE_WIDTH']}_{config['IMAGE_HEIGHT']}")
 
 def process_batch(batch, gabor_banks, batch_index, feature_vector_path):
 
-    x_features = np.zeros((dataset.batch_size, 255 * len(gabor_banks) * 3))
-    y_features = np.zeros((dataset.batch_size, 1))
+    features = np.zeros((dataset.batch_size, 255 * len(gabor_banks) * 3))
+    targets = np.zeros((dataset.batch_size, 1))
     x_batch, y_batch = batch
 
     feature_vector_bank = np.zeros((len(gabor_banks), 255 * 3))
     with tqdm(total=len(gabor_banks) * x_batch.shape[0]) as pbar:
-        for bank_index, gabor_transformer in enumerate(gabor_banks):
-            for index, x in enumerate(x_batch):
+        for index, (x, y) in enumerate(zip(x_batch, y_batch)):
+            for bank_index, gabor_transformer in enumerate(gabor_banks):
                 x_imag = gabor_transformer.transform(x)[1]
                 attention_map = x.copy()
 
@@ -57,14 +57,12 @@ def process_batch(batch, gabor_banks, batch_index, feature_vector_path):
                                                              lbp_vectorizer.transform(lbp_map_channel_2),
                                                              lbp_vectorizer.transform(lbp_map_channel_3)))
 
-                x_features[index] = np.hstack(feature_vector_bank)
-                pbar.update(1)
+            features[index] = np.hstack(feature_vector_bank)
+            targets[index] = y
+            pbar.update(1)
 
-    # first one is the classification 0/1 "target"
-    y_labels = np.array([e[0] for e in y_features])
-
-    np.save(os.path.join(feature_vector_path, "feature_vector_" + str(batch_index) + ".npy"), x_features)
-    np.save(os.path.join(feature_vector_path, "label_" + str(batch_index) + ".npy"), y_features)
+    np.save(os.path.join(feature_vector_path, "feature_vector_" + str(batch_index) + ".npy"), features)
+    np.save(os.path.join(feature_vector_path, "label_" + str(batch_index) + ".npy"), targets)
 
     return batch_index
 
@@ -74,7 +72,7 @@ if os.path.exists(FEATURE_VECTOR_PATH):
 os.makedirs(FEATURE_VECTOR_PATH)
 
 # it is not CPU intensive mostly I/O bounded thus x2 seems to be fine too.
-cpu_count = mpt.cpu_count() - 2
+cpu_count = mpt.cpu_count() - 1
 
 with Parallel(n_jobs=cpu_count, return_as="generator_unordered", prefer="threads") as parallel_execution:
     res = parallel_execution((delayed(process_batch)(batch=batch,
@@ -86,11 +84,3 @@ with Parallel(n_jobs=cpu_count, return_as="generator_unordered", prefer="threads
 
     for r in res:
         logger.info(f"Batche {r} saved!")
-
-# training_dict["train_images"] = {}
-# training_dict["train_images"]["x"] = {"Gabor" : np.array(x_features)}
-# training_dict["train_images"]["y"] = np.array(y_labels)
-#
-# best_hyper_parameters = find_best_hyper_parameters(training_data=training_dict, parameters=search_parameters, k_folds=10)
-#
-# print(best_hyper_parameters)

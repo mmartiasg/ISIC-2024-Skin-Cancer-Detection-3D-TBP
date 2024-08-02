@@ -1,0 +1,13 @@
+{
+"DATASET_PATH": "/home/matias/workspace/datasets/isic-2024-challenge/",
+"TRAIN_IMAGES_PATH":  "/home/matias/workspace/datasets/isic-2024-challenge/train-image/image/",
+"TRAIN_METADATA": "/home/matias/workspace/datasets/isic-2024-challenge/train-metadata.csv",
+"TEST_METADATA": "/home/matias/workspace/datasets/isic-2024-challenge/test-metadata.csv",
+"SAMPLE_SUBMISSION": "/home/matias/workspace/datasets/isic-2024-challenge/sample_submission.csv",
+"IMAGE_WIDTH": 128,
+"IMAGE_HEIGHT": 128,
+"TARGET_COLUMNS": "isic_id,target",
+"VECTORS_PATH": "feature_vectors",
+"BATCH_SIZE": 2048,
+"VERSION": "0.1.0"
+}

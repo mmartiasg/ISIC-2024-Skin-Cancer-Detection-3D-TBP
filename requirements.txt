@@ -9,3 +9,4 @@ awscli
 jupyter
 scikit-image
 joblib
+imbalanced-learn

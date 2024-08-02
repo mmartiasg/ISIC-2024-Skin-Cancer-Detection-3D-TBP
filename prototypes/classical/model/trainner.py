@@ -114,7 +114,7 @@ def find_best_hyper_parameters(training_data, parameters, k_folds):
                     param_grid=parameter_space_search,
                     n_jobs=8,
                     cv=k_folds,
-                    verbose=0,
+                    verbose=3,
                     scoring=scorer,
                 )
                 try:

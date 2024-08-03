@@ -1,0 +1,44 @@
+{
+   "train_images":{
+      "gabor_attention_maps":{
+         "Random Forest":{
+            "criterion":"log_loss",
+            "min_samples_split":8,
+            "n_estimators":16
+         },
+         "Ada Boost":{
+            "algorithm":"SAMME",
+            "n_estimators":128
+         },
+         "MLP":{
+            "activation":"relu",
+            "early_stopping":true,
+            "hidden_layer_sizes":[
+               32,
+               64,
+               128
+            ],
+            "learning_rate":"adaptive",
+            "learning_rate_init":0.001,
+            "max_iter":3000,
+            "solver":"adam"
+         },
+         "Logistic Regression":{
+            "C":10000.0,
+            "max_iter":3000
+         },
+         "LDA":{
+            "n_components":1
+         },
+         "KNN":{
+            "leaf_size":10,
+            "n_neighbors":2,
+            "p":1,
+            "weights":"uniform"
+         },
+         "GaussianNB":{
+            "var_smoothing":1e-05
+         }
+      }
+   }
+}

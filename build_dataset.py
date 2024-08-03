@@ -2,9 +2,6 @@ import shutil
 import multiprocessing as mpt
 
 from prototypes.classical.dataloader.Loader import IsiCancerData
-from prototypes.classical.model.trainner import find_best_hyper_parameters, calculate_metrics_k_folds
-from prototypes.classical.model.parameters import search_parameters
-from prototypes.classical.descriptors.texture import GaborTransformer, LBPTransformer
 from prototypes.classical.descriptors.vetorizer import LBPVectorizer
 import json
 from prototypes.classical.descriptors.texture import GaborTransformer, LBPTransformer

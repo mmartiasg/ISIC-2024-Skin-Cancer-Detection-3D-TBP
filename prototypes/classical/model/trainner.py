@@ -19,10 +19,11 @@ from sklearn.metrics import (
 from sklearn.utils import shuffle
 import pandas as pd
 from prototypes.classical.model.builder import build_models
+import multiprocessing as mpt
+from sklearn import preprocessing
 
 
-def k_fold_model(k, x, y, model, metrics_function, metrics_names):
-    num_val_samples = x.shape[0] // k
+def k_fold_model(k, x, y, model, metrics_function, metrics_names, logger):
 
     evaluated_metrics_fold = []
 
@@ -55,16 +56,19 @@ def k_fold_model(k, x, y, model, metrics_function, metrics_names):
 
         metric_dict = dict(zip(metrics_names, metrics))
         metric_dict["cv_fold"] = i
-
         evaluated_metrics_fold.append(metric_dict)
+
+        if logger is not None:
+            logger.info(f"model: {model} | metrics: {metric_dict} | fold: {i}")
 
     return evaluated_metrics_fold
 
 
-def calculate_metrics_k_folds(x, y, dataset_name, feature_set, k=4, parameters=None):
+def calculate_metrics_k_folds(x, y, dataset_name, feature_set, k=4, parameters=None, logger=None):
     metrics = []
 
     x_shuffle, y_shuffle = shuffle(x, y)
+    # x_shuffle = preprocessing.scale(x_shuffle)
 
     for model_name, model in tqdm(build_models(parameters, dataset_name, feature_set)):
         metric_results = k_fold_model(
@@ -79,6 +83,7 @@ def calculate_metrics_k_folds(x, y, dataset_name, feature_set, k=4, parameters=N
                 "precision_score",
                 "recall_score",
             ],
+            logger=logger
         )
 
         for metric_result in metric_results:
@@ -98,7 +103,10 @@ def find_best_hyper_parameters(training_data, parameters, k_folds):
     for dataset_name in tqdm(training_data.keys()):
         best_parameters_per_model[dataset_name] = {}
         for feature_set in training_data[dataset_name]["x"].keys():
+
             x = training_data[dataset_name]["x"][feature_set]
+            x = preprocessing.scale(x)
+
             y = training_data[dataset_name]["y"]
             best_parameters_per_model[dataset_name][feature_set] = {}
 
@@ -108,11 +116,12 @@ def find_best_hyper_parameters(training_data, parameters, k_folds):
                 print(
                     f"Model: {name} | dataset: {dataset_name} | feature set: {feature_set}"
                 )
+
                 parameter_space_search = parameters[name]
                 grid_search = GridSearchCV(
                     estimator=model_instance,
                     param_grid=parameter_space_search,
-                    n_jobs=8,
+                    n_jobs=(mpt.cpu_count() - 2),
                     cv=k_folds,
                     verbose=3,
                     scoring=scorer,
@@ -128,9 +137,8 @@ def find_best_hyper_parameters(training_data, parameters, k_folds):
     return best_parameters_per_model
 
 
-def get_evaluation_results(training_dict, best_hyper_parameters):
+def get_evaluation_results(training_dict, best_hyper_parameters, k_folds=10):
     results = []
-    k_folds = 10
 
     for dataset_name in training_dict.keys():
         for feature_set in training_dict[dataset_name]["x"].keys():

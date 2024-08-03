@@ -2,13 +2,15 @@ import numpy as np
 
 
 search_parameters = {
-    "SVM": {
-        "kernel": ("linear", "rbf", "poly", "sigmoid"),
-        "C": [2**i for i in range(4)],
-        "degree": [2**i for i in range(3)],
-        "class_weight": [None, "balanced"],
-        "decision_function_shape": ["ovo", "ovr"],
-    },
+    # "SVM": {
+    #     "kernel": ("linear", "rbf", "poly", "sigmoid", "precomputed"),
+    #     "C": [2**i for i in range(3)],
+    #     "degree": [2**i for i in range(2)],
+    #     "gamma": [1e-3, 1e-4],
+    #     # "class_weight": [None, "balanced"],
+    #     # Changed in version 0.17: Deprecated decision_function_shape=’ovo’ and None.
+    #     # "decision_function_shape": ["ovo", "ovr"],
+    # },
     "Random Forest": {
         "n_estimators": [2**i for i in range(8)],
         "criterion": ["gini", "entropy", "log_loss"],

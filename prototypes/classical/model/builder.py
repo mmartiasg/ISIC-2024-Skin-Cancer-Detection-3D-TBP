@@ -15,11 +15,8 @@ def build_models(parameters=None, dataset=None, feature_set=None):
         return [
             ("Random Forest", RandomForestClassifier()),
             ("Ada Boost", AdaBoostClassifier()),
-            ("SVM", SVC()),
-            (
-                "MLP",
-                MLPClassifier(),
-            ),
+            # ("SVM", SVC()),
+            ("MLP", MLPClassifier()),
             ("Logistic Regression", LogisticRegression()),
             ("LDA", LinearDiscriminantAnalysis()),
             ("KNN", KNeighborsClassifier()),
@@ -27,25 +24,28 @@ def build_models(parameters=None, dataset=None, feature_set=None):
         ]
     return [
         (
-            "Random Forest",
-            RandomForestClassifier(**parameters[dataset][feature_set]["Random Forest"]),
+            "Random Forest", RandomForestClassifier(**parameters[dataset][feature_set]["Random Forest"]),
         ),
         (
-            "Ada Boost",
-            AdaBoostClassifier(**parameters[dataset][feature_set]["Ada Boost"]),
+            "Ada Boost", AdaBoostClassifier(**parameters[dataset][feature_set]["Ada Boost"]),
         ),
-        ("SVM", SVC(**parameters[dataset][feature_set]["SVM"])),
+        # (
+        #     "SVM", SVC(**parameters[dataset][feature_set]["SVM"])
+        # ),
         (
-            "MLP",
-            MLPClassifier(**parameters[dataset][feature_set]["MLP"]),
+            "MLP", MLPClassifier(**parameters[dataset][feature_set]["MLP"]),
         ),
         (
-            "Logistic Regression",
-            LogisticRegression(
-                **parameters[dataset][feature_set]["Logistic Regression"]
-            ),
+            "Logistic Regression", LogisticRegression(**parameters[dataset][feature_set]["Logistic Regression"]
         ),
-        ("LDA", LinearDiscriminantAnalysis(**parameters[dataset][feature_set]["LDA"])),
-        ("KNN", KNeighborsClassifier(**parameters[dataset][feature_set]["KNN"])),
-        ("GaussianNB", GaussianNB(**parameters[dataset][feature_set]["GaussianNB"])),
+        ),
+        (
+            "LDA", LinearDiscriminantAnalysis(**parameters[dataset][feature_set]["LDA"])
+         ),
+        (
+            "KNN", KNeighborsClassifier(**parameters[dataset][feature_set]["KNN"])
+        ),
+        (
+            "GaussianNB", GaussianNB(**parameters[dataset][feature_set]["GaussianNB"])
+        ),
     ]

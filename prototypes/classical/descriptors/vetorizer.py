@@ -13,6 +13,19 @@ class LBPVectorizer(sklearn.base.TransformerMixin):
         return count/count.sum()
 
 
+class HistogramVectorizer(sklearn.base.TransformerMixin):
+    def __init__(self):
+        super(HistogramVectorizer, self).__init__()
+
+    def transform(self, X):
+        transformed = np.zeros((len(X), 254))
+
+        for i in range(len(X)):
+            transformed[i] = np.histogram(X[i], bins=range(255))[0]
+
+        return transformed
+
+
 class GaborAttentionLBPVectors(sklearn.base.TransformerMixin):
     def __init__(self):
         super(GaborAttentionLBPVectors, self).__init__()

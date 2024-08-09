@@ -13,9 +13,11 @@ class LBPTransformer(sklearn.base.TransformerMixin):
         self.method = method
 
     def transform(self, X):
-        gray_scale = cv.cvtColor(X, cv.COLOR_BGR2GRAY) if X.ndim == 3 else X
+        transformed_data = np.zeros_like(X)
+        for i in range(len(X)):
+            transformed_data[i, :] = local_binary_pattern(image=X[i], P=self.p, R=self.r, method=self.method)
 
-        return local_binary_pattern(image=gray_scale, P=self.p, R=self.r, method=self.method)
+        return transformed_data
 
 
 class HoGTransformer(sklearn.base.TransformerMixin):

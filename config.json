@@ -9,7 +9,7 @@
   "TARGET_COLUMNS": "isic_id,target",
   "VECTORS_PATH": "feature_vectors",
   "BATCH_SIZE": 2048,
-  "K_FOLDS": 10,
+  "K_FOLDS": 4,
   "SAMPLE_PERCENTAGE": 0.25,
   "HYPER_PARAMETERS_PATH": "best_hyperparameters",
   "VERSION": "0.1.0"

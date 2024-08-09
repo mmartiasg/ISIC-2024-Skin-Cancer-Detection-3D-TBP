@@ -1,51 +1,49 @@
 from sklearn.ensemble import (
-    RandomForestClassifier,
-    AdaBoostClassifier
+    GradientBoostingClassifier,
+    HistGradientBoostingClassifier
 )
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPClassifier
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import MultinomialNB, BernoulliNB
+from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import Perceptron
+from sklearn.linear_model import PassiveAggressiveClassifier
 from sklearn.naive_bayes import GaussianNB
 
 
 def build_models(parameters=None, dataset=None, feature_set=None):
     if parameters is None:
         return [
-            ("Random Forest", RandomForestClassifier()),
-            ("Ada Boost", AdaBoostClassifier()),
-            # ("SVM", SVC()),
-            ("MLP", MLPClassifier()),
-            ("Logistic Regression", LogisticRegression()),
-            ("LDA", LinearDiscriminantAnalysis()),
-            ("KNN", KNeighborsClassifier()),
+            ("GradientBoostingClassifier", GradientBoostingClassifier()),
+            ("HistGradientBoostingClassifier", HistGradientBoostingClassifier()),
+            ("Perceptron", Perceptron()),
+            ("SGDClassifier", SGDClassifier()),
+            ("PassiveAggressiveClassifier", PassiveAggressiveClassifier()),
+            ("BernoulliNB", BernoulliNB()),
+            ("MultinomialNB", MultinomialNB()),
             ("GaussianNB", GaussianNB()),
         ]
     return [
         (
-            "Random Forest", RandomForestClassifier(**parameters[dataset][feature_set]["Random Forest"]),
+            "GradientBoostingClassifier", GradientBoostingClassifier(**parameters[dataset][feature_set]["GradientBoostingClassifier"])
         ),
         (
-            "Ada Boost", AdaBoostClassifier(**parameters[dataset][feature_set]["Ada Boost"]),
-        ),
-        # (
-        #     "SVM", SVC(**parameters[dataset][feature_set]["SVM"])
-        # ),
-        (
-            "MLP", MLPClassifier(**parameters[dataset][feature_set]["MLP"]),
+            "HistGradientBoostingClassifier", HistGradientBoostingClassifier(**parameters[dataset][feature_set]["HistGradientBoostingClassifier"])
         ),
         (
-            "Logistic Regression", LogisticRegression(**parameters[dataset][feature_set]["Logistic Regression"]
-        ),
+            "Perceptron", Perceptron(**parameters[dataset][feature_set]["Perceptron"])
         ),
         (
-            "LDA", LinearDiscriminantAnalysis(**parameters[dataset][feature_set]["LDA"])
-         ),
+            "SGDClassifier", SGDClassifier(**parameters[dataset][feature_set]["SGDClassifier"])
+        ),
         (
-            "KNN", KNeighborsClassifier(**parameters[dataset][feature_set]["KNN"])
+            "PassiveAggressiveClassifier", PassiveAggressiveClassifier(**parameters[dataset][feature_set]["PassiveAggressiveClassifier"])
+        ),
+        (
+            "BernoulliNB", BernoulliNB(**parameters[dataset][feature_set]["BernoulliNB"])
+        ),
+        (
+            "MultinomialNB", MultinomialNB(**parameters[dataset][feature_set]["MultinomialNB"])
         ),
         (
             "GaussianNB", GaussianNB(**parameters[dataset][feature_set]["GaussianNB"])
-        ),
+        )
     ]

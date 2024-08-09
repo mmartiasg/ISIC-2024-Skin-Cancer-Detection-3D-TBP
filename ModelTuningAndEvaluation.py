@@ -9,6 +9,9 @@ import re
 from imblearn.over_sampling import RandomOverSampler, ADASYN, SMOTE
 import math
 import logging
+# patch sklearn
+from sklearnex import patch_sklearn
+patch_sklearn()
 
 
 def main():
@@ -81,18 +84,19 @@ def evaluate_algorithms(K_FOLDS, SPLITS, TOTAL_SUB_BATCHES, VECTORS_PATH, config
                                             feature_set="gabor_attention_maps",
                                             parameters=best_hyperparameters,
                                             logger=logger)
+        for metric in metrics:
+            metric["split"] = split_index
 
-        metrics["split"] = split_index
-        algorithms_metrics.append(metrics)
-
-        logger.info(f"Metrics for split: {split_index}\n")
-        logger.info(metrics)
+        algorithms_metrics.extend(metrics)
+        pd.concat([pd.DataFrame(row) for row in algorithms_metrics]).to_csv("algorithms_metrics_intermediate_file.csv", index=False)
+        logger.info(f"Finished Metrics for split: {split_index}\n")
         logger.info("---------------------------------------\n")
-    pd.DataFrame(algorithms_metrics).to_csv("algorithms_metrics.csv", index=False)
+
+    pd.concat([pd.DataFrame(row) for row in algorithms_metrics]).to_csv("algorithms_metrics.csv", index=False)
 
 
 def find_hyperparameters(K_FOLDS, VECTORS_PATH, config, features_batch, label_balance, logger):
-    N_samples = math.ceil(features_batch.shape[0] * 0.25)
+    N_samples = math.ceil(features_batch.shape[0] * config["SAMPLE_PERCENTAGE"])
     sampling_index = np.random.choice(features_batch.shape[0], N_samples, replace=False)
     samples = features_batch[sampling_index]
     # Find best hyper-parameters for all algorithms
@@ -107,6 +111,7 @@ def find_hyperparameters(K_FOLDS, VECTORS_PATH, config, features_batch, label_ba
 
         x_features.append(np.load(x))
         y_labels.append(np.load(y))
+
     x_features = np.vstack(x_features).astype(np.float32)
     y_labels = np.vstack(y_labels).astype(np.float32)
     logger.info("Before SMOTE: y count")
@@ -125,7 +130,7 @@ def find_hyperparameters(K_FOLDS, VECTORS_PATH, config, features_batch, label_ba
     logger.info("Best Hyperparameters")
     logger.info(best_hyper_parameters)
 
-    with open("best_hyperparameters_0.1.0", "w") as f:
+    with open("best_hyperparameters_0.1.0_old", "w") as f:
         f.write(json.dumps(dict(best_hyper_parameters)))
 
 

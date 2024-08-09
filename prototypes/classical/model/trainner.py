@@ -105,7 +105,7 @@ def find_best_hyper_parameters(training_data, parameters, k_folds):
         for feature_set in training_data[dataset_name]["x"].keys():
 
             x = training_data[dataset_name]["x"][feature_set]
-            x = preprocessing.scale(x)
+            # x = preprocessing.scale(x)
 
             y = training_data[dataset_name]["y"]
             best_parameters_per_model[dataset_name][feature_set] = {}

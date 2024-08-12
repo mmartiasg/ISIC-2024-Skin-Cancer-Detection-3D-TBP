@@ -13,3 +13,4 @@ h5py==3.10.0
 imbalanced-learn
 matplotlib
 scikit-learn-intelex
+optuna

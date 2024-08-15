@@ -122,27 +122,26 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
     train_history_epoch_loss = []
     val_history_epoch_loss = []
 
-    train_epoch_loss = Mean().to(device).to("cpu")
-    val_epoch_loss = Mean().to(device).to("cpu")
+    train_epoch_loss = Mean().to("cpu")
+    val_epoch_loss = Mean().to("cpu")
 
     with tqdm(total=epochs) as epoch_p_bar:
         for epoch in range(epochs):
 
             model.train()
             for train_batch in train_dataloader:
-                x = train_batch[0]
-                y = train_batch[1]
+                x = train_batch[0].to(device=device)
+                y = train_batch[1].to(device=device)
 
-                mix_x, y_a, y_b, lam = mix_up_data(x, y, alpha=0.2)
+                mix_x, y_a, y_b, lam = mix_up_data(x, y, alpha=alpha)
 
-                mix_x, y_a, y_b = mix_x.to(device=device), y_a.to(device=device), y_b.to(device=device)
+                mix_x, y_a, y_b = mix_x.to(device=device, dtype=torch.float), y_a.to(device=device, dtype=torch.float), y_b.to(device=device, dtype=torch.float)
 
-                train_batch_len = len(mix_x)
+                train_batch_len = len(x)
 
-                y_train_pred = model(mix_x)
+                y_train_pred = model(mix_x).to(device=device)
 
-                train_loss = (criterion(input=y_train_pred, target=y_a) * lam +
-                              (1-lam) * criterion(input=y_train_pred, target=y_b))
+                train_loss = criterion(input=y_train_pred, target=y_a) * lam + criterion(input=y_train_pred, target=y_b) * (1-lam)
 
                 optimizer.zero_grad()
                 train_loss.backward()

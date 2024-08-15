@@ -16,3 +16,4 @@ scikit-learn-intelex
 optuna
 torcheval
 torchvision
+albumentations

@@ -1,6 +1,8 @@
 import numpy as np
 import sklearn
+from sklearn.decomposition import IncrementalPCA
 from prototypes.classical.descriptors.texture import LBPTransformer, GaborTransformer
+import multiprocessing as mpt
 
 
 class LBPVectorizer(sklearn.base.TransformerMixin):
@@ -55,3 +57,21 @@ class GaborAttentionLBPVectors(sklearn.base.TransformerMixin):
                                                          self.lbp_vectorizer.transform(lbp_map_channel_3)))
 
         return np.hstack(feature_vector_bank)
+
+
+class PCAVectorizer(sklearn.base.TransformerMixin):
+    def __init__(self, n_components, batch_size=256):
+        super(PCAVectorizer, self).__init__()
+        self.pca = IncrementalPCA(n_components=n_components)
+        self.batch_size = batch_size
+
+    def fit(self, X):
+        for i in range(0, len(X), self.batch_size):
+            self.pca.partial_fit(X[i: i + self.batch_size].reshape(X[i: i + self.batch_size].shape[0], -1))
+
+    def transform(self, X):
+        transformed = np.zeros((X.shape[0], self.pca.n_components))
+        for i in range(0, len(X), self.batch_size):
+            transformed[i: i + self.batch_size, :] = (self.pca.transform(X[i: i + self.batch_size]
+                                                                 .reshape(X[i: i + self.batch_size].shape[0], -1)))
+        return transformed

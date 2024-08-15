@@ -4,6 +4,9 @@ from skimage.filters import gabor_kernel
 import sklearn
 import cv2 as cv
 from scipy import ndimage as ndi
+import joblib
+import multiprocessing as mpt
+import math
 
 
 class LBPTransformer(sklearn.base.TransformerMixin):
@@ -16,7 +19,6 @@ class LBPTransformer(sklearn.base.TransformerMixin):
         transformed_data = np.zeros_like(X)
         for i in range(len(X)):
             transformed_data[i, :] = local_binary_pattern(image=X[i], P=self.p, R=self.r, method=self.method)
-
         return transformed_data
 
 
@@ -43,16 +45,42 @@ class GaborTransformer(sklearn.base.TransformerMixin):
         self.sigma_x = sigma_x
         self.sigma_y = sigma_y
         self.just_imag = just_imag
-
-    def transform(self, X):
-        gray_scale = cv.cvtColor(X, cv.COLOR_BGR2GRAY) if X.ndim == 3 else X
-
-        kernel = gabor_kernel(frequency=self.frequency,
+        self.kernel = gabor_kernel(frequency=self.frequency,
                               theta=self.theta,
                               sigma_x=self.sigma_x,
                               sigma_y=self.sigma_y)
 
-        if self.just_imag:
-            return ndi.convolve(gray_scale, np.imag(kernel), mode='reflect', cval=0)
+    def transform_batch(self, X):
+        transformed_data = np.zeros_like(X)
 
-        return ndi.convolve(gray_scale, np.real(kernel), mode='reflect', cval=0), ndi.convolve(gray_scale, np.imag(kernel), mode='reflect', cval=0)
+        for i in range(len(X)):
+            transformed_data[i] = np.sqrt(ndi.convolve(X[i], np.real(self.kernel), mode='reflect', cval=0)**2 +
+                                   ndi.convolve(X[i], np.imag(self.kernel), mode='reflect', cval=0)**2)
+
+        return transformed_data
+
+    def transform(self, X):
+        cpu_count = mpt.cpu_count()
+        batch_size = math.ceil(len(X) / cpu_count) + 1
+
+        with joblib.Parallel(n_jobs=cpu_count) as parallel:
+            results = parallel(joblib.delayed(self.transform_batch)
+                               (X[i: i + batch_size]) for i in
+                               range(0, len(X), batch_size))
+        return np.vstack(results)
+
+
+class GaborTransformerBank(sklearn.base.TransformerMixin):
+    def __init__(self, gabor_banks):
+        super(GaborTransformerBank, self).__init__()
+        self.gabor_banks = gabor_banks
+
+    def transform(self, X):
+        transformed_data = []
+        bank_transformed_data = []
+
+        for gabor_filter_index in range(len(self.gabor_banks)):
+            bank_transformed_data.append(self.gabor_banks[gabor_filter_index].transform(X))
+        transformed_data.append(bank_transformed_data)
+
+        return np.transpose(np.vstack(transformed_data), axes=[1, 0, 2, 3])

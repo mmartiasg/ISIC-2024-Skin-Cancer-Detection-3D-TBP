@@ -14,3 +14,5 @@ imbalanced-learn
 matplotlib
 scikit-learn-intelex
 optuna
+torcheval
+torchvision

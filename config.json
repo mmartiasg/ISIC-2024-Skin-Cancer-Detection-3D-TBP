@@ -8,8 +8,12 @@
   "IMAGE_HEIGHT": 128,
   "TARGET_COLUMNS": "isic_id,target",
   "VECTORS_PATH": "feature_vectors",
-  "BATCH_SIZE": 2048,
+  "BATCH_SIZE": 512,
   "K_FOLDS": 4,
+  "ALPHA": 0.2,
+  "TRAIN_DEVICE": "cuda",
+  "NUM_EPOCHS": 500,
+  "NUM_WORKERS": 8,
   "SAMPLE_PERCENTAGE": 0.25,
   "HYPER_PARAMETERS_PATH": "best_hyperparameters",
   "VERSION": "0.1.0"

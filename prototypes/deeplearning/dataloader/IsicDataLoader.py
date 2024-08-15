@@ -26,15 +26,15 @@ class LoadDataVectors(torch.utils.data.Dataset):
         dataset = self.hd5_file[self.keys[idx]]
         image_arr_bytes = dataset[()]
         image = Image.open(io.BytesIO(image_arr_bytes))
-        x = np.array(image)
+        x = image
 
         if self.transform:
-            x = self.transform.transform(x)
+            x = self.transform(image)
 
         if self.metadata_dataframe is not None:
             return x,\
-                self.metadata_dataframe[self.metadata_dataframe["isic_id"] == self.keys[idx]]\
-                    [self.target_columns].to_numpy()[0]
+                torch.from_numpy(self.metadata_dataframe[self.metadata_dataframe["isic_id"] == self.keys[idx]]\
+                    [self.target_columns].values[0])
 
         return x, self.keys[idx]
 

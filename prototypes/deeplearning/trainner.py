@@ -5,6 +5,44 @@ from tqdm.auto import tqdm
 import numpy as np
 import torch.utils.data
 from torcheval.metrics import MulticlassAccuracy, Mean
+import math
+import os
+import logging
+
+
+class EarlyStopping:
+    def __init__(self, tolerance=5, min_delta=0):
+
+        self.tolerance = tolerance
+        self.min_delta = min_delta
+        self.counter = 0
+        self.early_stop = False
+
+    def __call__(self, train_loss, validation_loss):
+        if (validation_loss - train_loss) > self.min_delta:
+            self.counter +=1
+            if self.counter >= self.tolerance:
+                self.early_stop = True
+
+
+class SaveBestModel:
+    def __init__(self, path, model, logger):
+        self.path = path
+        self.model = model
+        self.logger = logger
+        os.makedirs(self.path, exist_ok=True)
+
+    def save_model(self):
+        torch.save(self.model.state_dict(), os.path.join(self.path, "best.pt"))
+
+    def __call__(self, validation_history):
+        if len(validation_history) > 1:
+            if validation_history[-1] < validation_history[-2]:
+                self.save_model()
+                self.logger.info(f"Saved model's weight improvement from {validation_history[-2]} to {validation_history[-1]}")
+        else:
+            self.save_model()
+            self.logger.info(f"Saved model's weight with validation {validation_history[-1]}")
 
 
 def train_model_dual_task(model, train_dataloader, val_dataloader, criterion_1, criterion_2, optimizer, device, epochs, contribution_percentage=0.5, use_log=False):
@@ -102,48 +140,67 @@ def train_model_dual_task(model, train_dataloader, val_dataloader, criterion_1, 
     return {"train_loss_history": train_loss_history, "val_loss_history": val_loss_history}
 
 
-def mix_up_data(x, y, alpha):
+@torch.compile
+def mix_up_data(x, y, alpha, beta_dist=None):
     '''Returns mixed inputs, pairs of targets, and lambda'''
     if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
+        # Will this make it faster?
+        lam = beta_dist.sample()
+        # lam = np.random.beta(alpha, alpha)
     else:
         lam = 1
 
-    batch_size = x.size()[0]
-    index = torch.randperm(batch_size)
+    # lam = beta_dist.sample()
+    # batch_size = x.size()[0]
+    index = torch.randperm(x.size()[0])
 
-    mixed_x = lam * x + (1 - lam) * x[index, :]
-    y_a, y_b = y, y[index]
+    # mixed_x = lam * x + (1 - lam) * x[index, :]
+    # y_a, y_b = y, y[index]
 
-    return mixed_x, y_a, y_b, lam
+    # return mixed_x, y_a, y_b, lam
+    return lam * x + (1 - lam) * x[index, :], y, y[index], lam
 
 
 def train_single_task(model, train_dataloader, val_dataloader, optimizer, criterion, device, epochs, alpha=0.2):
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(filename='training.log', encoding='utf-8', level=logging.INFO)
+
     train_history_epoch_loss = []
     val_history_epoch_loss = []
+    metric_update = ""
+
+    save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", model=model, logger=logger)
+    early_stopping = EarlyStopping(tolerance=5, min_delta=0.01)
+
+    beta_dist = torch.distributions.beta.Beta(alpha, alpha)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
     train_epoch_loss = Mean().to("cpu")
     val_epoch_loss = Mean().to("cpu")
 
     with tqdm(total=epochs) as epoch_p_bar:
         for epoch in range(epochs):
-
+            train_batch_processed = 1
             model.train()
             for train_batch in train_dataloader:
-                x = train_batch[0].to(device=device)
-                y = train_batch[1].to(device=device)
+                mix_x, y_a, y_b, lam = mix_up_data(train_batch[0],
+                                                   train_batch[1],
+                                                   alpha,
+                                                   beta_dist)
 
-                mix_x, y_a, y_b, lam = mix_up_data(x, y, alpha=alpha)
+                mix_x, y_a, y_b = (mix_x.to(device=device, dtype=torch.float),
+                                   y_a.to(device=device, dtype=torch.float),
+                                   y_b.to(device=device, dtype=torch.float))
 
-                mix_x, y_a, y_b = mix_x.to(device=device, dtype=torch.float), y_a.to(device=device, dtype=torch.float), y_b.to(device=device, dtype=torch.float)
-
-                train_batch_len = len(x)
+                train_batch_len = len(mix_x)
 
                 y_train_pred = model(mix_x).to(device=device)
 
-                train_loss = criterion(input=y_train_pred, target=y_a) * lam + criterion(input=y_train_pred, target=y_b) * (1-lam)
+                train_loss = (criterion(input=y_train_pred, target=y_a) * lam +
+                              criterion(input=y_train_pred, target=y_b) * (1-lam))
 
-                optimizer.zero_grad()
+                # optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
                 train_loss.backward()
                 optimizer.step()
 
@@ -152,14 +209,18 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
                     train_epoch_loss.update(train_loss.detach().cpu() * train_batch_len)
                 model.train()
 
+                epoch_p_bar.set_description(f"{metric_update} | Train batch processed: {train_batch_processed} \
+                - {len(train_dataloader)} - {math.ceil(train_batch_processed / len(train_dataloader) * 100)}%")
+                train_batch_processed += 1
+
 
             model.eval()
             with torch.no_grad():
+                val_batch_processed = 1
                 for val_batch in val_dataloader:
-                    x_val = val_batch[0].to(device=device)
-                    y_val = val_batch[1].to(device=device)
+                    x_val, y_val = (val_batch[0].to(device=device, dtype=torch.float),
+                                    val_batch[1].to(device=device, dtype=torch.float))
 
-                    x_val, y_val = x_val.to(device=device), y_val.to(device=device)
                     val_batch_len = len(x_val)
 
                     y_val_pred = model(x_val)
@@ -167,19 +228,32 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
                     val_loss = criterion(input=y_val_pred, target=y_val)
 
                     val_epoch_loss.update(val_loss.detach().cpu() * val_batch_len)
+                    epoch_p_bar.set_description(
+                        f"{metric_update} | Val batch processed: {val_batch_processed} from {len(val_dataloader)} \
+                        - {math.ceil(val_batch_processed / len(val_dataloader) * 100)}%")
+                    val_batch_processed += 1
             model.train()
 
             train_history_epoch_loss.append(train_epoch_loss.compute().item())
             val_history_epoch_loss.append(val_epoch_loss.compute().item())
 
-            epoch_p_bar.set_description(f"[loss: {round(train_history_epoch_loss[-1], 4)} - val_loss: {round(val_history_epoch_loss[-1], 4)}]")
+            metric_update = f"[loss: {round(train_history_epoch_loss[-1], 4)} \
+            - val_loss: {round(val_history_epoch_loss[-1], 4)}]"
+
+            # epoch_p_bar.set_description(f"[loss: {round(train_history_epoch_loss[-1], 4)} - val_loss: {round(val_history_epoch_loss[-1], 4)}]")
 
             #Clean metrics state at the end of the epoch
             train_epoch_loss.reset()
             val_epoch_loss.reset()
 
+            #Scheduler step
+            scheduler.step()
+
+            save_best_model(validation_history=val_history_epoch_loss)
+            if early_stopping(train_loss=train_history_epoch_loss[-1], validation_loss=val_history_epoch_loss[-1]):
+                logger.info("Stopped early")
+                break
 
             epoch_p_bar.update(1)
-
 
     return train_history_epoch_loss, val_history_epoch_loss

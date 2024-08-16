@@ -17,3 +17,6 @@ optuna
 torcheval
 torchvision
 albumentations
+onnx
+onnxscript
+onnxruntime

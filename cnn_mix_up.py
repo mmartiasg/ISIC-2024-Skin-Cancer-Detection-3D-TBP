@@ -6,6 +6,7 @@ from prototypes.utility.data import ProjectConfiguration
 import torchvision
 import os
 import matplotlib.pyplot as plt
+from prototypes.deeplearning.trainner import MixUp
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     train, val = torch.utils.data.random_split(dataloader,
                                                [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
 
+    mix_up = MixUp(alpha=config.get_value("ALPHA"))
     train_sampler = val_sampler = None
     shuffle = True
     if config.get_value("USE_SAMPLER"):
@@ -30,13 +32,17 @@ def main():
         val_sampler = torch.utils.data.RandomSampler(val, num_samples=config.get_value("VAL_SAMPLE_SIZE"))
         shuffle = False
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"), shuffle=shuffle,
-                                                   num_workers=config.get_value("NUM_WORKERS"), pin_memory=True, sampler=train_sampler)
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"),
+                                                   shuffle=shuffle,
+                                                   num_workers=config.get_value("NUM_WORKERS"),
+                                                   pin_memory=True,
+                                                   sampler=train_sampler,
+                                                   collate_fn=mix_up)
     val_dataloader = torch.utils.data.DataLoader(val, batch_size=config.get_value("BATCH_SIZE"), shuffle=False,
                                                  num_workers=config.get_value("NUM_WORKERS"), pin_memory=True, sampler=val_sampler)
 
-
-    print(f"Train set size: {len(train)} | Validation set size: {len(val)}")
+    print(f"Train set size: {len(train_dataloader.dataset)}\
+     | Validation set size: {len(val_dataloader.dataset)}")
 
     model.fc = torch.nn.Sequential(torch.nn.Linear(2048, config.get_value("NUM_CLASSES")), torch.nn.Sigmoid())
 

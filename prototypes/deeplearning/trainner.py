@@ -8,21 +8,23 @@ from torcheval.metrics import MulticlassAccuracy, Mean
 import math
 import os
 import logging
+from torcheval.metrics import BinaryAUROC
 
 
 class EarlyStopping:
-    def __init__(self, tolerance=5, min_delta=0):
-
+    def __init__(self, tolerance=5):
         self.tolerance = tolerance
-        self.min_delta = min_delta
         self.counter = 0
-        self.early_stop = False
+        self.best_validation_loss = float('inf')
 
-    def __call__(self, train_loss, validation_loss):
-        if (validation_loss - train_loss) > self.min_delta:
-            self.counter +=1
-            if self.counter >= self.tolerance:
-                self.early_stop = True
+    def __call__(self, validation_loss):
+        if validation_loss < self.best_validation_loss:
+            self.best_validation_loss = validation_loss
+            self.counter = 0
+        else:
+            self.counter += 1
+
+        return self.counter > self.tolerance
 
 
 class SaveBestModel:
@@ -30,19 +32,18 @@ class SaveBestModel:
         self.path = path
         self.model = model
         self.logger = logger
+        self.best_validation_loss = float('inf')
         os.makedirs(self.path, exist_ok=True)
 
     def save_model(self):
         torch.save(self.model.state_dict(), os.path.join(self.path, "best.pt"))
 
-    def __call__(self, validation_history):
-        if len(validation_history) > 1:
-            if validation_history[-1] < validation_history[-2]:
-                self.save_model()
-                self.logger.info(f"Saved model's weight improvement from {validation_history[-2]} to {validation_history[-1]}")
-        else:
+    def __call__(self, validation_loss):
+        if validation_loss < self.best_validation_loss:
             self.save_model()
-            self.logger.info(f"Saved model's weight with validation {validation_history[-1]}")
+            self.logger.info(
+                f"Saved model's weight improvement from {self.best_validation_loss} to {validation_loss}")
+            self.best_validation_loss = validation_loss
 
 
 def train_model_dual_task(model, train_dataloader, val_dataloader, criterion_1, criterion_2, optimizer, device, epochs, contribution_percentage=0.5, use_log=False):
@@ -163,20 +164,22 @@ def mix_up_data(x, y, alpha, beta_dist=None):
 
 def train_single_task(model, train_dataloader, val_dataloader, optimizer, criterion, device, epochs, alpha=0.2):
     logger = logging.getLogger(__name__)
-    logging.basicConfig(filename='training.log', encoding='utf-8', level=logging.INFO)
+    logging.basicConfig(filename='results/training.log', encoding='utf-8', level=logging.INFO)
 
     train_history_epoch_loss = []
     val_history_epoch_loss = []
-    metric_update = ""
+    metric_update = "No Metrics so far.."
 
     save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", model=model, logger=logger)
-    early_stopping = EarlyStopping(tolerance=5, min_delta=0.01)
+    early_stopping = EarlyStopping(tolerance=5)
 
     beta_dist = torch.distributions.beta.Beta(alpha, alpha)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
     train_epoch_loss = Mean().to("cpu")
     val_epoch_loss = Mean().to("cpu")
+    val_metric = BinaryAUROC().to("cpu")
+    train_metric = BinaryAUROC().to("cpu")
 
     with tqdm(total=epochs) as epoch_p_bar:
         for epoch in range(epochs):
@@ -207,6 +210,7 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
                 model.eval()
                 with torch.no_grad():
                     train_epoch_loss.update(train_loss.detach().cpu() * train_batch_len)
+                    train_metric.update(y_train_pred.squeeze().detach().cpu(), train_batch[1].squeeze())
                 model.train()
 
                 epoch_p_bar.set_description(f"{metric_update} | Train batch processed: {train_batch_processed} \
@@ -227,7 +231,9 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
 
                     val_loss = criterion(input=y_val_pred, target=y_val)
 
+                    val_metric.update(y_val_pred.squeeze().detach().cpu(), y_val.squeeze())
                     val_epoch_loss.update(val_loss.detach().cpu() * val_batch_len)
+
                     epoch_p_bar.set_description(
                         f"{metric_update} | Val batch processed: {val_batch_processed} from {len(val_dataloader)} \
                         - {math.ceil(val_batch_processed / len(val_dataloader) * 100)}%")
@@ -237,20 +243,22 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
             train_history_epoch_loss.append(train_epoch_loss.compute().item())
             val_history_epoch_loss.append(val_epoch_loss.compute().item())
 
-            metric_update = f"[loss: {round(train_history_epoch_loss[-1], 4)} \
-            - val_loss: {round(val_history_epoch_loss[-1], 4)}]"
+            metric_update = (f"[loss: {round(train_history_epoch_loss[-1], 4)} \
+            - val_loss: {round(val_history_epoch_loss[-1], 4)}] - Train_rocAUC: {train_metric.compute().item()} Val_rocAUC: {val_metric.compute().item()}")
 
             # epoch_p_bar.set_description(f"[loss: {round(train_history_epoch_loss[-1], 4)} - val_loss: {round(val_history_epoch_loss[-1], 4)}]")
 
             #Clean metrics state at the end of the epoch
             train_epoch_loss.reset()
             val_epoch_loss.reset()
+            train_metric.reset()
+            val_metric.reset()
 
             #Scheduler step
             scheduler.step()
 
-            save_best_model(validation_history=val_history_epoch_loss)
-            if early_stopping(train_loss=train_history_epoch_loss[-1], validation_loss=val_history_epoch_loss[-1]):
+            save_best_model(validation_loss = val_history_epoch_loss[-1])
+            if early_stopping(validation_loss = val_history_epoch_loss[-1]):
                 logger.info("Stopped early")
                 break
 

@@ -20,12 +20,20 @@ def main():
                                  target_columns=["target"],
                                  transform=weights.transforms())
 
-    train, val = torch.utils.data.random_split(dataloader, [0.9, 0.1])
+    train, val = torch.utils.data.random_split(dataloader,
+                                               [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"), shuffle=True,
-                                                   num_workers=config.get_value("NUM_WORKERS"), pin_memory=True)
+    train_sampler = val_sampler = None
+    shuffle = True
+    if config.get_value("USE_SAMPLER"):
+        train_sampler = torch.utils.data.RandomSampler(train, num_samples=config.get_value("TRAIN_SAMPLE_SIZE"))
+        val_sampler = torch.utils.data.RandomSampler(val, num_samples=config.get_value("VAL_SAMPLE_SIZE"))
+        shuffle = False
+
+    train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"), shuffle=shuffle,
+                                                   num_workers=config.get_value("NUM_WORKERS"), pin_memory=True, sampler=train_sampler)
     val_dataloader = torch.utils.data.DataLoader(val, batch_size=config.get_value("BATCH_SIZE"), shuffle=False,
-                                                 num_workers=config.get_value("NUM_WORKERS"), pin_memory=True)
+                                                 num_workers=config.get_value("NUM_WORKERS"), pin_memory=True, sampler=val_sampler)
 
 
     print(f"Train set size: {len(train)} | Validation set size: {len(val)}")

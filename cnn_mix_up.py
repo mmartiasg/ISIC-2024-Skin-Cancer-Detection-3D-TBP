@@ -88,7 +88,8 @@ def main():
     train, val = torch.utils.data.random_split(dataloader,
                                                [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
 
-    train.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform), model.weights.transforms()])
+    if config.get_value("PER_SAMPLE_AUGMENTATION"):
+        train.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform), model.weights.transforms()])
 
     train_sampler = val_sampler = None
     shuffle = True

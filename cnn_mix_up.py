@@ -9,7 +9,12 @@ import torchvision
 import os
 import matplotlib.pyplot as plt
 from prototypes.deeplearning.trainner import MixUp
-from prototypes.deeplearning.models import Resnet50Prototype1, Resnet50Prototype2, Resnet50Prototype3, Resnet50Prototype1Dropout
+from prototypes.deeplearning.models import (Resnet50Prototype1,
+                                            Resnet50Prototype2,
+                                            Resnet50Prototype3,
+                                            Resnet50Prototype1Dropout,
+                                            Resnet50Prototype2Dropout,
+                                            Resnet50Prototype3Dropout)
 from tqdm.auto import tqdm
 import pandas as pd
 from prototypes.deeplearning.trainner import score
@@ -20,7 +25,9 @@ import albumentations as A
 model_selection = {"prototype1" : Resnet50Prototype1,
                    "prototype2" : Resnet50Prototype2,
                    "prototype3" : Resnet50Prototype3,
-                   "prototype1Dropout" : Resnet50Prototype1Dropout}
+                   "prototype1Dropout" : Resnet50Prototype1Dropout,
+                   "prototype2Dropout" : Resnet50Prototype2Dropout,
+                   "prototype3Dropout" : Resnet50Prototype3Dropout}
 
 
 class Augmentation():
@@ -34,7 +41,7 @@ class Augmentation():
 def score_model(config, dataloader):
     model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
     model_loaded.load_state_dict(
-        torch.load(os.path.join("checkpoint_resnet50_mix_up", f"{config.get_value('VERSION')}_best.pt"), weights_only=True))
+        torch.load(os.path.join("checkpoint_resnet50_mix_up", f"{config.get_value('VERSION')}_{config.get_value('MODEL')}_best.pt"), weights_only=True))
 
     model_loaded = model_loaded.cuda()
 
@@ -45,6 +52,7 @@ def score_model(config, dataloader):
         x = batch[0].cuda()
         y = batch[1].cuda()
 
+        model_loaded.eval()
         with torch.no_grad():
             y_pred.extend(model_loaded(x).cpu().numpy())
             y_true.extend(y.cpu().numpy())
@@ -68,14 +76,14 @@ def main():
 
     #Augmentation per sample
     augmentation_transform = A.Compose([
-        A.CLAHE(p=0.2),
-        A.RandomRotate90(p=0.5),
+        A.CLAHE(p=0.3),
+        A.RandomRotate90(p=0.7),
         A.Transpose(p=0.5),
         A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.50, rotate_limit=45, p=.75),
         A.Blur(blur_limit=3),
         A.OpticalDistortion(p=0.5),
         A.GridDistortion(p=0.5),
-        A.HueSaturationValue(p=0.5),
+        A.HueSaturationValue(p=0.4),
     ])
 
     # Augmentation cross sample

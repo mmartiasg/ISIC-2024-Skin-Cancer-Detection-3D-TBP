@@ -6,7 +6,7 @@ from torcheval.metrics import Mean
 import math
 import os
 import logging
-
+import pandas as pd
 
 """
 2024 ISIC Challenge primary prize scoring metric
@@ -22,7 +22,7 @@ https://en.wikipedia.org/wiki/Partial_Area_Under_the_ROC_Curve.
 from sklearn.metrics import roc_curve, auc
 
 
-def score(y_pred, y_true, min_tpr: float = 0.80) -> float:
+def score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: str, min_tpr: float = 0.80) -> float:
     '''
     2024 ISIC Challenge metric: pAUC
 
@@ -41,11 +41,18 @@ def score(y_pred, y_true, min_tpr: float = 0.80) -> float:
         Float value range [0, max_fpr]
     '''
 
+    del solution[row_id_column_name]
+    del submission[row_id_column_name]
+
+    # check submission is numeric
+    if not pd.api.types.is_numeric_dtype(submission.values):
+        raise Exception('Submission target column must be numeric')
+
     # rescale the target. set 0s to 1s and 1s to 0s (since sklearn only has max_fpr)
-    v_gt = abs(y_true - 1)
+    v_gt = abs(np.asarray(solution.values) - 1)
 
     # flip the submissions to their compliments
-    v_pred = -1.0 * y_pred
+    v_pred = -1.0 * np.asarray(submission.values)
 
     max_fpr = abs(1 - min_tpr)
 
@@ -93,14 +100,15 @@ class EarlyStopping:
 
 
 class SaveBestModel:
-    def __init__(self, path, logger):
+    def __init__(self, path, logger, version):
         self.path = path
         self.logger = logger
         self.best_validation_loss = float('inf')
+        self.version = version
         os.makedirs(self.path, exist_ok=True)
 
     def save_model(self, model):
-        torch.save(model.state_dict(), os.path.join(self.path, "best.pt"))
+        torch.save(model.state_dict(), os.path.join(self.path, f"{self.version}_best.pt"))
 
     def __call__(self, validation_loss, model):
         if validation_loss < self.best_validation_loss:
@@ -123,15 +131,15 @@ class MixUp():
         return lam * x + (1 - lam) * x[index, :], y, y[index], lam
 
 
-def train_single_task(model, train_dataloader, val_dataloader, optimizer, criterion, device, epochs, alpha=0.2):
+def train_single_task(model, train_dataloader, val_dataloader, optimizer, criterion, device, epochs, config):
     logger = logging.getLogger(__name__)
-    logging.basicConfig(filename='results/training.log', encoding='utf-8', level=logging.INFO)
+    logging.basicConfig(filename=f'results/{config.get_value("VERSION")}_{config.get_value("MODEL")}_training.log', encoding='utf-8', level=logging.INFO)
 
     train_history_epoch_loss = []
     val_history_epoch_loss = []
 
-    save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", logger=logger)
-    early_stopping = EarlyStopping(tolerance=5)
+    save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", version=f'{config.get_value("VERSION")}_{config.get_value("MODEL")}', logger=logger)
+    early_stopping = EarlyStopping(tolerance=config.get_value("TOLERANCE_EARLY_STOPPING"))
 
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
 
@@ -165,11 +173,9 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
 
                 train_epoch_loss.update(train_loss.detach().cpu() * train_batch_len)
                 train_loss_epoch_value = train_epoch_loss.compute().item()
-                metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] \
-                - [Val_loss: {round(val_loss_epoch_value, 4)}]")
+                metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val_loss: {round(val_loss_epoch_value, 4)}]")
 
-                epoch_p_bar.set_description(f"{metric_update} | Train batch processed: {train_batch_processed} \
-                - {len(train_dataloader)} - {math.ceil(train_batch_processed / len(train_dataloader) * 100)}%")
+                epoch_p_bar.set_description(f"{metric_update} | Train batch processed: {train_batch_processed} - {len(train_dataloader)} - {math.ceil(train_batch_processed / len(train_dataloader) * 100)}%")
                 train_batch_processed += 1
 
             # Validation
@@ -188,12 +194,9 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
 
                     val_epoch_loss.update(val_loss.detach().cpu() * val_batch_len)
                     val_loss_epoch_value = val_epoch_loss.compute().item()
-                    metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] \
-                    - [Val_loss: {round(val_loss_epoch_value, 4)}]")
+                    metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val_loss: {round(val_loss_epoch_value, 4)}]")
 
-                    epoch_p_bar.set_description(
-                        f"{metric_update} | Val batch processed: {val_batch_processed} from {len(val_dataloader)} \
-                        - {math.ceil(val_batch_processed / len(val_dataloader) * 100)}%")
+                    epoch_p_bar.set_description(f"{metric_update} | Val batch processed: {val_batch_processed} - {len(val_dataloader)} - {math.ceil(val_batch_processed / len(val_dataloader) * 100)}%")
                     val_batch_processed += 1
 
             #Clean metrics state at the end of the epoch

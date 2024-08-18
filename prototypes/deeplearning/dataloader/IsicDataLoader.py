@@ -10,31 +10,28 @@ import re
 
 
 class LoadDataVectors(torch.utils.data.Dataset):
-    def __init__(self, hd5_file_path, metadata_csv_path=None, target_columns=None, transform=None, target_transform=None):
+    def __init__(self, hd5_file_path, metadata_csv_path=None, transform=None, target_transform=None):
         super(LoadDataVectors, self).__init__()
 
         self.hd5_file = h5py.File(hd5_file_path, "r")
         self.keys = list(self.hd5_file.keys())
         self.transform = transform
-        self.metadata_dataframe = pd.read_csv(metadata_csv_path, engine="python") if metadata_csv_path is not None else None
-        self.target_columns = target_columns
+        self.metadata_dataframe = None
+        if metadata_csv_path is not None:
+            self.metadata_dataframe = pd.read_csv(metadata_csv_path, engine="python")
+            self.target_dict = dict(zip(self.metadata_dataframe["isic_id"].values, self.metadata_dataframe["target"].values))
 
     def __len__(self):
         return len(self.keys)
 
     def __getitem__(self, idx):
-        dataset = self.hd5_file[self.keys[idx]]
-        image_arr_bytes = dataset[()]
-        image = Image.open(io.BytesIO(image_arr_bytes))
-        x = image
+        x = Image.open(io.BytesIO(self.hd5_file[self.keys[idx]][()]))
 
         if self.transform:
-            x = self.transform(image)
+            x = self.transform(x)
 
         if self.metadata_dataframe is not None:
-            return x,\
-                torch.from_numpy(self.metadata_dataframe[self.metadata_dataframe["isic_id"] == self.keys[idx]]\
-                    [self.target_columns].values[0])
+            return x, torch.tensor([self.target_dict[self.keys[idx]]])
 
         return x, self.keys[idx]
 

@@ -1,6 +1,6 @@
 import gc
 
-from prototypes.deeplearning.dataloader.IsicDataLoader import LoadDataVectors
+from prototypes.deeplearning.dataloader.IsicDataLoader import IsicDataLoader, over_under_sample, load_val_images, create_folds, AugmentationWrapper
 from prototypes.deeplearning.trainner import train_single_task
 import torch
 import json
@@ -23,26 +23,18 @@ import pandas as pd
 from prototypes.deeplearning.trainner import score
 import logging
 import albumentations as A
+import numpy as np
 
 
-model_selection = {"prototype1" : Resnet50Prototype1,
-                   "prototype2" : Resnet50Prototype2,
-                   "prototype3" : Resnet50Prototype3,
-                   "prototype1Dropout" : Resnet50Prototype1Dropout,
-                   "prototype2Dropout" : Resnet50Prototype2Dropout,
-                   "prototype3Dropout" : Resnet50Prototype3Dropout,
-                   "vit16Dropout":VitPrototype1Dropout,
+model_selection = {"prototype1": Resnet50Prototype1,
+                   "prototype2": Resnet50Prototype2,
+                   "prototype3": Resnet50Prototype3,
+                   "prototype1Dropout": Resnet50Prototype1Dropout,
+                   "prototype2Dropout": Resnet50Prototype2Dropout,
+                   "prototype3Dropout": Resnet50Prototype3Dropout,
+                   "vit16Dropout": VitPrototype1Dropout,
                    "vit16MixDropout": VitPrototype2Dropout,
                    "vit16MHA": VitPrototype3MHA}
-
-
-class Augmentation():
-    def __init__(self, augmentation_transform):
-        self.augmentation_transform = augmentation_transform
-
-    def __call__(self, sample):
-        return self.augmentation_transform(image=sample)
-
 
 def score_model(config, dataloader):
     model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
@@ -82,7 +74,7 @@ def main():
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
 
     #Augmentation per sample
-    augmentation_transform = A.Compose([
+    augmentations = A.Compose([
         A.CLAHE(p=0.4),
         A.RandomRotate90(p=0.7),
         A.Transpose(p=0.6),
@@ -93,72 +85,93 @@ def main():
         A.HueSaturationValue(p=0.5),
     ])
 
+    augmentation_transform_pipeline = torchvision.transforms.Compose([AugmentationWrapper(augmentations), model.weights.transform])
+
     # Augmentation cross sample
     mix_up = MixUp(alpha=config.get_value("ALPHA"))
 
-    dataloader = LoadDataVectors(hd5_file_path=os.path.join(config.get_value("DATASET_PATH"), "train-image.hdf5"),
-                                 metadata_csv_path=config.get_value("TRAIN_METADATA"),
-                                metadata_columns=config.get_value("METADATA_COLUMNS").split("\t"),
-                                 transform=model.weights.transforms())
+    metadata_df = pd.read_csv(config.get_value("TRAIN_METADATA"), engine="python")
+    columns = config.get_value("METADATA_COLUMNS").split("\t")
 
-    train, val = torch.utils.data.random_split(dataloader,
-                                               [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
+    isic_id, metadata_array, labels = metadata_df["isic_id"].values, metadata_df[columns].values, metadata_df[
+        "target"].values
 
-    # TODO: split the physical HD5 this doesn't work is a fucking shit.
-    # folds = torch.utils.data.random_split(dataloader, [0.25, 0.25, 0.25, 0.25, 0.25])
-    # if config.get_value("PER_SAMPLE_AUGMENTATION"):
-    #     train.dataset.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform),
-    #                                                       model.weights.transforms()])
+    folds_config_dict = create_folds(isic_id=isic_id, metadata=metadata_array, labels=labels)
 
-    train_sampler = val_sampler = None
-    shuffle = True
-    if config.get_value("USE_SAMPLER"):
-        train_sampler = torch.utils.data.RandomSampler(train, num_samples=config.get_value("TRAIN_SAMPLE_SIZE"))
-        val_sampler = torch.utils.data.RandomSampler(val, num_samples=config.get_value("VAL_SAMPLE_SIZE"))
-        shuffle = False
+    total_val_history = []
+    total_score = []
+    for fold_index in folds_config_dict.keys():
+        print(f"Fold {fold_index}")
 
-    train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"),
-                                                   shuffle=shuffle,
-                                                   num_workers=config.get_value("NUM_WORKERS"),
-                                                   pin_memory=True,
-                                                   sampler=train_sampler,
-                                                   collate_fn=mix_up,
-                                                   prefetch_factor=config.get_value("PREFETCH_FACTOR"),
-                                                   persistent_workers=False)
-    val_dataloader = torch.utils.data.DataLoader(val, batch_size=config.get_value("BATCH_SIZE"),
-                                                 shuffle=False,
-                                                 num_workers=config.get_value("NUM_WORKERS"),
-                                                 pin_memory=True,
-                                                 sampler=val_sampler,
-                                                 prefetch_factor=config.get_value("PREFETCH_FACTOR"),
-                                                 persistent_workers=False)
+        train_x, train_y = over_under_sample(anomaly_images=folds_config_dict[fold_index]["train"]["isic_id"][np.where(folds_config_dict[fold_index]["train"]["target"]==1)],
+                          normal_images=folds_config_dict[fold_index]["train"]["isic_id"][np.where(folds_config_dict[fold_index]["train"]["target"]==0)],
+                          config=config,
+                          augmentation_transform=augmentations,
+                          total_samples=config.get_value("TOTAL_TRAIN_SAMPLES"),
+                          imbalance_percentage=config.get_value("CLASS_BALANCE_PERCENTAGE"))
 
-    print(f"Train set size: {len(train_dataloader.dataset)}\
-     | Validation set size: {len(val_dataloader.dataset)}")
+        val_x, val_y = load_val_images(val_ids=folds_config_dict[fold_index]["val"]["isic_id"],
+                                       val_target=folds_config_dict[fold_index]["val"]["target"], config=config)
 
-    train_history, val_history = train_single_task(model=model,
-                      train_dataloader=train_dataloader,
-                      val_dataloader=val_dataloader,
-                      optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
-                      criterion=torch.nn.BCELoss(),
-                      device=config.get_value("TRAIN_DEVICE"),
-                      epochs=config.get_value("NUM_EPOCHS"),
-                      config=config)
+        train = IsicDataLoader(train_x, train_y, transform=augmentation_transform_pipeline)
+        val = IsicDataLoader(val_x, val_y, transform=model.weights.transform)
 
-    plt.plot(range(len(train_history)), train_history, label="Training Loss")
-    plt.plot(range(len(val_history)), val_history, label="Validation Loss")
-    plt.xlabel("Epochs")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.savefig(os.path.join("results", config.get_value("VERSION"), f"{config.get_value('MODEL')}_Training_val_loss_curves.png"))
+        train_sampler = val_sampler = None
+        shuffle = True
+        if config.get_value("USE_SAMPLER"):
+            train_sampler = torch.utils.data.RandomSampler(train, num_samples=config.get_value("TRAIN_SAMPLE_SIZE"))
+            val_sampler = torch.utils.data.RandomSampler(val, num_samples=config.get_value("VAL_SAMPLE_SIZE"))
+            shuffle = False
 
-    # free up ram and vram
-    del model
-    torch.cuda.empty_cache()
-    gc.collect()
+        train_dataloader = torch.utils.data.DataLoader(train, batch_size=config.get_value("BATCH_SIZE"),
+                                                       shuffle=shuffle,
+                                                       num_workers=config.get_value("NUM_WORKERS"),
+                                                       pin_memory=True,
+                                                       sampler=train_sampler,
+                                                       collate_fn=mix_up,
+                                                       prefetch_factor=config.get_value("PREFETCH_FACTOR"),
+                                                       persistent_workers=False)
+        val_dataloader = torch.utils.data.DataLoader(val, batch_size=config.get_value("BATCH_SIZE"),
+                                                     shuffle=False,
+                                                     num_workers=config.get_value("NUM_WORKERS"),
+                                                     pin_memory=True,
+                                                     sampler=val_sampler,
+                                                     prefetch_factor=config.get_value("PREFETCH_FACTOR"),
+                                                     persistent_workers=False)
 
-    score = score_model(config, dataloader=val_dataloader)
-    logger.info(f"Model version: {config.get_value('VERSION')}_{config.get_value('MODEL')} score a : {score} in the validation dataset")
+        print(f"Train set size: {len(train_dataloader.dataset)}\
+         | Validation set size: {len(val_dataloader.dataset)}")
+
+        train_history, val_history = train_single_task(model=model,
+                          train_dataloader=train_dataloader,
+                          val_dataloader=val_dataloader,
+                          optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
+                          criterion=torch.nn.BCELoss(),
+                          device=config.get_value("TRAIN_DEVICE"),
+                          epochs=config.get_value("NUM_EPOCHS"),
+                          config=config)
+
+        plt.plot(range(len(train_history)), train_history, label=f"Training Loss fold: {fold_index}")
+        plt.plot(range(len(val_history)), val_history, label=f"Validation Loss fold: {fold_index}")
+        plt.xlabel("Epochs")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.savefig(os.path.join("results", config.get_value("VERSION"), f"{config.get_value('MODEL')}_Training_val_loss_curves_{fold_index}.png"))
+
+        # free up ram and vram
+        del model
+        torch.cuda.empty_cache()
+        gc.collect()
+
+
+        score = score_model(config, dataloader=val_dataloader)
+        logger.info(f"Model version: {config.get_value('VERSION')}_{config.get_value('MODEL')} score a : {score} in the validation dataset")
+
+        total_score.append(score)
+        total_val_history.extend(val_history)
+
+    print(f"Total score mean and std: {np.mean(total_score)} | {np.std(total_score)}")
+    print(f"Total val score mean and std: {np.mean(total_val_history)} | {np.std(total_val_history)}")
 
 
 if __name__ == "__main__":

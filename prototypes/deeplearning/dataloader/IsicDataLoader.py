@@ -9,15 +9,61 @@ import glob
 import os
 import re
 from prototypes.classical.segmentation.transformers import OtsuThresholdingSegmentation, BlackBarsRemover
+from sklearn.model_selection import StratifiedKFold
+import math
+import copy
+from tqdm.auto import tqdm
+import albumentations as A
 
 
-class Augmentation():
+def create_folds(isic_id, metadata, labels, config):
+    stratified_kf = StratifiedKFold(n_splits=config.get_value("K_FOLDS"), shuffle=True)
+
+    fold_config = {}
+    for i in range(config.get_value("K_FOLDS")):
+        fold_config[f"{i + 1}-train"] = {}
+        fold_config[f"{i + 1}-val"] = {}
+
+    for fold_index, indexes in enumerate(stratified_kf.split(isic_id, labels)):
+        train_index, val_index = indexes
+
+        fold_config[f"{fold_index + 1}-train"]["isic_id"] = isic_id[train_index]
+        fold_config[f"{fold_index + 1}-train"]["metadata"] = metadata[train_index]
+        fold_config[f"{fold_index + 1}-train"]["target"] = labels[train_index]
+        fold_config[f"{fold_index + 1}-val"]["isic_id"] = isic_id[val_index]
+        fold_config[f"{fold_index + 1}-val"]["metadata"] = metadata[val_index]
+        fold_config[f"{fold_index + 1}-val"]["target"] = labels[val_index]
+
+    return fold_config
+
+
+class AugmentationWrapper():
     def __init__(self, augmentation_transform):
         self.augmentation_transform = augmentation_transform
 
     def __call__(self, sample):
-        return self.augmentation_transform(image=sample)
+        return Image.fromarray(self.augmentation_transform(image=sample)["image"])
 
+
+class IsicDataLoader(torch.utils.data.Dataset):
+    def __init__(self, x, y, transform=None, target_transform=None):
+        super(IsicDataLoader, self).__init__()
+        self.x = x
+        self.y = y
+        self.transform = transform
+        self.transform = target_transform
+
+    def __len__(self):
+        return len(self.train_images)
+
+    def __getitem__(self, idx):
+        x = self.train_images[idx]
+        y = self.y[idx]
+
+        if self.transform is not None:
+            x = self.transform(x)
+
+        return x, y
 
 
 class LoadDataVectors(torch.utils.data.Dataset):
@@ -83,3 +129,60 @@ class LoadPreProcessVectors(torch.utils.data.Dataset):
                          f"label_{batch_index}.npy"))
 
         return x, y
+
+
+def over_under_sample(anomaly_images, normal_images, config, augmentation_transform, total_samples=10000, imbalance_percentage=0.5):
+    assert total_samples > anomaly_images.shape[0] * 2
+    assert 0 < imbalance_percentage <= 0.5
+
+    normal_percentage = total_samples * 0.45 / normal_images.shape[0]
+    iterations = math.ceil(normal_images.shape[0] * normal_percentage / anomaly_images.shape[0])
+    sampled_ids = np.random.choice(normal_images, math.ceil(total_samples * imbalance_percentage))
+
+    augmented_images = []
+    for _ in tqdm(range(iterations)):
+        for image_name in anomaly_images:
+            sample_image = copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name+".jpg")).resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH"))))
+            augmented_image = augmentation_transform(image=np.array(sample_image))
+            augmented_images.append(Image.fromarray(augmented_image["image"]))
+
+    normal_images_sampling = []
+    for image_name in tqdm(sampled_ids):
+        normal_images_sampling.append(copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name+".jpg")).resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH")))))
+
+    total_images = np.vstack((augmented_images, normal_images_sampling))
+    targets = np.vstack((np.ones(len(augmented_images)), np.zeros(len(normal_images_sampling))))
+
+    seed = np.random.randint(0, 255)
+    return np.random.RandomState(seed).shuffle(total_images), np.random.RandomState(seed).shuffle(targets)
+
+
+def load_val_images(val_ids, val_target, config):
+    val_images = []
+    for image_name in val_ids:
+        sample_image = copy.deepcopy(
+            Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name + ".jpg")))
+        val_images.append(sample_image)
+
+    return val_images, val_target
+
+
+def create_folds(isic_id, metadata, labels, config):
+    stratified_kf = StratifiedKFold(n_splits=config.get_value("K_FOLDS"), shuffle=True)
+
+    fold_config = {}
+    for i in range(config.get_value("K_FOLDS")):
+        fold_config[f"{i + 1}-train"] = {}
+        fold_config[f"{i + 1}-val"] = {}
+
+    for fold_index, indexes in enumerate(stratified_kf.split(isic_id, labels)):
+        train_index, val_index = indexes
+
+        fold_config[f"{fold_index + 1}-train"]["isic_id"] = isic_id[train_index]
+        fold_config[f"{fold_index + 1}-train"]["metadata"] = metadata[train_index]
+        fold_config[f"{fold_index + 1}-train"]["target"] = labels[train_index]
+        fold_config[f"{fold_index + 1}-val"]["isic_id"] = isic_id[val_index]
+        fold_config[f"{fold_index + 1}-val"]["metadata"] = metadata[val_index]
+        fold_config[f"{fold_index + 1}-val"]["target"] = labels[val_index]
+
+    return fold_config

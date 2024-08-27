@@ -262,7 +262,7 @@ class VitPrototype3MHA(torch.nn.Module):
 
 class VitPrototype1(torch.nn.Module):
     def __init__(self, n_classes):
-        super(VitPrototype1Dropout, self).__init__()
+        super(VitPrototype1, self).__init__()
         self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
         self.model = torchvision.models.vit_b_16(weights=self.weights)
         self.n_classes = n_classes

@@ -100,6 +100,7 @@ def main():
 
     total_val_history = []
     total_score = []
+    print(folds_config_dict.keys())
     for fold_index in folds_config_dict.keys():
         print(f"Fold {fold_index}")
 

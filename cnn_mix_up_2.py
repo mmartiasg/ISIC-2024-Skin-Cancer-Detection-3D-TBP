@@ -85,7 +85,7 @@ def main():
         A.HueSaturationValue(p=0.5),
     ])
 
-    augmentation_transform_pipeline = torchvision.transforms.Compose([AugmentationWrapper(augmentations), model.weights.transform])
+    augmentation_transform_pipeline = torchvision.transforms.Compose([AugmentationWrapper(augmentations), model.weights.transforms])
 
     # Augmentation cross sample
     mix_up = MixUp(alpha=config.get_value("ALPHA"))
@@ -114,7 +114,7 @@ def main():
                                        val_target=folds_config_dict[fold_index]["val"]["target"], config=config)
 
         train = IsicDataLoader(train_x, train_y, transform=augmentation_transform_pipeline)
-        val = IsicDataLoader(val_x, val_y, transform=model.weights.transform)
+        val = IsicDataLoader(val_x, val_y, transform=model.weights.transforms)
 
         train_sampler = val_sampler = None
         shuffle = True

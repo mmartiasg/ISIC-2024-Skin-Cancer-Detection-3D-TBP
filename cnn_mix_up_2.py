@@ -1,14 +1,14 @@
 import gc
 
 from prototypes.deeplearning.dataloader.IsicDataLoader import IsicDataLoader, over_under_sample, load_val_images, create_folds, AugmentationWrapper
-from prototypes.deeplearning.trainner import train_single_task
+from prototypes.deeplearning.trainner import train_single_task_v1
 import torch
 import json
 from prototypes.utility.data import ProjectConfiguration
 import torchvision
 import os
 import matplotlib.pyplot as plt
-from prototypes.deeplearning.trainner import MixUp
+from prototypes.deeplearning.trainner import MixUpV1
 from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype2,
                                             Resnet50Prototype3,
@@ -70,7 +70,7 @@ def main():
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
 
     # Augmentation cross sample
-    mix_up = MixUp(alpha=config.get_value("ALPHA"))
+    mix_up = MixUpV1(alpha=config.get_value("ALPHA"))
 
     metadata_df = pd.read_csv(config.get_value("TRAIN_METADATA"), engine="python")
     columns = config.get_value("METADATA_COLUMNS").split("\t")
@@ -146,7 +146,7 @@ def main():
         print(f"Train set size: {len(train_dataloader.dataset)}\
          | Validation set size: {len(val_dataloader.dataset)}")
 
-        train_history, val_history = train_single_task(model=model,
+        train_history, val_history = train_single_task_v1(model=model,
                           train_dataloader=train_dataloader,
                           val_dataloader=val_dataloader,
                           optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),

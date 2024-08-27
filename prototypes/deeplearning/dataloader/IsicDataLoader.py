@@ -156,7 +156,10 @@ def over_under_sample(anomaly_images, normal_images, config, augmentation_transf
     targets[:len(augmented_images)] = 1
 
     seed = np.random.randint(0, 255)
-    return np.random.RandomState(seed).shuffle(total_images), np.random.RandomState(seed).shuffle(targets)
+    np.random.RandomState(seed).shuffle(total_images)
+    np.random.RandomState(seed).shuffle(targets)
+
+    return total_images, targets
 
 
 def load_val_images(val_ids, val_target, config):

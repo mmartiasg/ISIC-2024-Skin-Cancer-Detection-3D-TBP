@@ -21,18 +21,19 @@ def create_folds(isic_id, metadata, labels, config):
 
     fold_config = {}
     for i in range(config.get_value("K_FOLDS")):
-        fold_config[f"{i + 1}-train"] = {}
-        fold_config[f"{i + 1}-val"] = {}
+        fold_config[f"{i + 1}"] = {}
+        fold_config[f"{i + 1}"]["train"] = {}
+        fold_config[f"{i + 1}"]["val"] = {}
 
     for fold_index, indexes in enumerate(stratified_kf.split(isic_id, labels)):
         train_index, val_index = indexes
 
-        fold_config[f"{fold_index + 1}-train"]["isic_id"] = isic_id[train_index]
-        fold_config[f"{fold_index + 1}-train"]["metadata"] = metadata[train_index]
-        fold_config[f"{fold_index + 1}-train"]["target"] = labels[train_index]
-        fold_config[f"{fold_index + 1}-val"]["isic_id"] = isic_id[val_index]
-        fold_config[f"{fold_index + 1}-val"]["metadata"] = metadata[val_index]
-        fold_config[f"{fold_index + 1}-val"]["target"] = labels[val_index]
+        fold_config[f"{fold_index + 1}"]["train"]["isic_id"] = isic_id[train_index]
+        fold_config[f"{fold_index + 1}"]["train"]["metadata"] = metadata[train_index]
+        fold_config[f"{fold_index + 1}"]["train"]["target"] = labels[train_index]
+        fold_config[f"{fold_index + 1}"]["val"]["isic_id"] = isic_id[val_index]
+        fold_config[f"{fold_index + 1}"]["val"]["metadata"] = metadata[val_index]
+        fold_config[f"{fold_index + 1}"]["val"]["target"] = labels[val_index]
 
     return fold_config
 

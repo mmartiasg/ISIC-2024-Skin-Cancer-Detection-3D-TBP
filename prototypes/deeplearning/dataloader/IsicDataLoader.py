@@ -152,7 +152,8 @@ def over_under_sample(anomaly_images, normal_images, config, augmentation_transf
         normal_images_sampling.append(copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name+".jpg")).resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH")))))
 
     total_images = np.vstack((augmented_images, normal_images_sampling))
-    targets = np.vstack((np.ones(len(augmented_images)), np.zeros(len(normal_images_sampling))))
+    targets = np.zeros(len(total_images))
+    targets[:len(augmented_images)] = 1
 
     seed = np.random.randint(0, 255)
     return np.random.RandomState(seed).shuffle(total_images), np.random.RandomState(seed).shuffle(targets)

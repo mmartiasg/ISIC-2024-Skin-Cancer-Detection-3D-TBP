@@ -115,8 +115,10 @@ def main():
         val_x, val_y = load_val_images(val_ids=folds_config_dict[fold_index]["val"]["isic_id"],
                                        val_target=folds_config_dict[fold_index]["val"]["target"], config=config)
 
-        train = IsicDataLoader(train_x, train_y, transform=augmentation_transform_pipeline)
-        val = IsicDataLoader(val_x, val_y, transform=model.weights.transforms)
+        print(len(train_x), len(val_x))
+        print(len(train_y), len(val_y))
+        train = IsicDataLoader(x=train_x, y=train_y, transform=augmentation_transform_pipeline)
+        val = IsicDataLoader(x=val_x, y=val_y, transform=model.weights.transforms)
 
         train_sampler = val_sampler = None
         shuffle = True

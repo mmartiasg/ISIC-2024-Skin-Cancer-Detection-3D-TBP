@@ -55,7 +55,7 @@ class IsicDataLoader(torch.utils.data.Dataset):
         self.transform = target_transform
 
     def __len__(self):
-        return len(self.train_images)
+        return len(self.x)
 
     def __getitem__(self, idx):
         x = self.x[idx]

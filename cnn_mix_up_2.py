@@ -67,25 +67,7 @@ def main():
 
     logger = logging.getLogger(__name__)
     logging.basicConfig(filename=f'results/{config.get_value("VERSION")}_{config.get_value("MODEL")}_scores.log', encoding='utf-8', level=logging.INFO)
-
-    model = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
-    model = model.to(device=config.get_value("TRAIN_DEVICE"))
-
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
-
-    #Augmentation per sample
-    augmentations = A.Compose([
-        A.CLAHE(p=0.4),
-        A.RandomRotate90(p=0.7),
-        A.Transpose(p=0.6),
-        A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.50, rotate_limit=45, p=.75),
-        A.Blur(blur_limit=3),
-        A.OpticalDistortion(p=0.5),
-        A.GridDistortion(p=0.5),
-        A.HueSaturationValue(p=0.5),
-    ])
-
-    augmentation_transform_pipeline = torchvision.transforms.Compose([AugmentationWrapper(augmentations), model.weights.transforms])
 
     # Augmentation cross sample
     mix_up = MixUp(alpha=config.get_value("ALPHA"))
@@ -104,6 +86,24 @@ def main():
 
     for fold_index in folds_config_dict.keys():
         print(f"Fold {fold_index}")
+
+        model = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
+        model = model.to(device=config.get_value("TRAIN_DEVICE"))
+
+        # Augmentation per sample
+        augmentations = A.Compose([
+            A.CLAHE(p=0.4),
+            A.RandomRotate90(p=0.7),
+            A.Transpose(p=0.6),
+            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.50, rotate_limit=45, p=.75),
+            A.Blur(blur_limit=3),
+            A.OpticalDistortion(p=0.5),
+            A.GridDistortion(p=0.5),
+            A.HueSaturationValue(p=0.5),
+        ])
+
+        augmentation_transform_pipeline = torchvision.transforms.Compose(
+            [AugmentationWrapper(augmentations), model.weights.transforms])
 
         train_x, train_y = over_under_sample(anomaly_images=folds_config_dict[fold_index]["train"]["isic_id"][np.where(folds_config_dict[fold_index]["train"]["target"]==1)],
                           normal_images=folds_config_dict[fold_index]["train"]["isic_id"][np.where(folds_config_dict[fold_index]["train"]["target"]==0)],
@@ -164,7 +164,6 @@ def main():
         del model
         torch.cuda.empty_cache()
         gc.collect()
-
 
         score = score_model(config, dataloader=val_dataloader)
         logger.info(f"Model version: {config.get_value('VERSION')}_{config.get_value('MODEL')} score a : {score} in the validation dataset")

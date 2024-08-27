@@ -1,3 +1,4 @@
+import cv2
 import torch
 import h5py
 from PIL import Image
@@ -7,18 +8,35 @@ import numpy as np
 import glob
 import os
 import re
+from prototypes.classical.segmentation.transformers import OtsuThresholdingSegmentation, BlackBarsRemover
+
+
+class Augmentation():
+    def __init__(self, augmentation_transform):
+        self.augmentation_transform = augmentation_transform
+
+    def __call__(self, sample):
+        return self.augmentation_transform(image=sample)
+
 
 
 class LoadDataVectors(torch.utils.data.Dataset):
-    def __init__(self, hd5_file_path, metadata_csv_path=None, transform=None, target_transform=None):
+    def __init__(self, hd5_file_path, metadata_csv_path=None, metadata_columns=None, transform=None, split="train", target_transform=None):
         super(LoadDataVectors, self).__init__()
 
         self.hd5_file = h5py.File(hd5_file_path, "r")
         self.keys = list(self.hd5_file.keys())
-        self.transform = transform
+        self.preprocess = BlackBarsRemover()
         self.metadata_dataframe = None
+        self.transform = None
+        self.metadata_inputs = None
+        self.split = split
+        self.transform = transform
+
         if metadata_csv_path is not None:
             self.metadata_dataframe = pd.read_csv(metadata_csv_path, engine="python")
+            if metadata_columns is not None:
+                self.metadata_inputs = self.metadata_dataframe[metadata_columns].values
             self.target_dict = dict(zip(self.metadata_dataframe["isic_id"].values, self.metadata_dataframe["target"].values))
 
     def __len__(self):
@@ -27,8 +45,14 @@ class LoadDataVectors(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         x = Image.open(io.BytesIO(self.hd5_file[self.keys[idx]][()]))
 
+        if self.metadata_inputs is not None:
+            metadata_x = self.metadata_inputs[idx]
+
         if self.transform:
             x = self.transform(x)
+
+        if self.metadata_inputs is not None:
+            return x, torch.tensor(metadata_x), torch.tensor([self.target_dict[self.keys[idx]]])
 
         if self.metadata_dataframe is not None:
             return x, torch.tensor([self.target_dict[self.keys[idx]]])

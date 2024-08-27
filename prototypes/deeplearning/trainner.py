@@ -108,6 +108,7 @@ class SaveBestModel:
         os.makedirs(self.path, exist_ok=True)
 
     def save_model(self, model):
+        #Save weights
         torch.save(model.state_dict(), os.path.join(self.path, f"{self.version}_best.pt"))
 
     def __call__(self, validation_loss, model):
@@ -124,11 +125,11 @@ class MixUp():
 
     def __call__(self, batch):
         '''Returns mixed inputs, pairs of targets, and lambda'''
-        x, y = torch.utils.data.default_collate(batch)
+        x1, x2, y = torch.utils.data.default_collate(batch)
         lam = self.beta_dist.sample()
-        index = torch.randperm(x.size()[0])
+        index = torch.randperm(x1.size()[0])
 
-        return lam * x + (1 - lam) * x[index, :], y, y[index], lam
+        return lam * x1 + (1 - lam) * x1[index, :], y, y[index], lam, x2
 
 
 def train_single_task(model, train_dataloader, val_dataloader, optimizer, criterion, device, epochs, config):
@@ -141,7 +142,7 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
     save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", version=f'{config.get_value("VERSION")}_{config.get_value("MODEL")}', logger=logger)
     early_stopping = EarlyStopping(tolerance=config.get_value("TOLERANCE_EARLY_STOPPING"))
 
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, verbose=True)
 
     train_epoch_loss = Mean().to("cpu")
     val_epoch_loss = Mean().to("cpu")
@@ -154,16 +155,17 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
 
             model.train()
             for train_batch in train_dataloader:
-                mix_x, y_a, y_b, lam = (train_batch[0].to(device=device, dtype=torch.float),
+                mix_x, y_a, y_b, lam, metadata_x = (train_batch[0].to(device=device, dtype=torch.float),
                                         train_batch[1].to(device=device, dtype=torch.float),
                                         train_batch[2].to(device=device, dtype=torch.float),
-                                        train_batch[3].to(device=device, dtype=torch.float))
+                                        train_batch[3].to(device=device, dtype=torch.float),
+                                        train_batch[4].to(device=device, dtype=torch.float))
 
                 train_batch_len = len(mix_x)
 
                 optimizer.zero_grad(set_to_none=True)
 
-                y_train_pred = model(mix_x).to(device=device)
+                y_train_pred = model([mix_x, metadata_x]).to(device=device)
 
                 train_loss = (criterion(input=y_train_pred, target=y_a) * lam +
                               criterion(input=y_train_pred, target=y_b) * (1-lam))
@@ -183,12 +185,13 @@ def train_single_task(model, train_dataloader, val_dataloader, optimizer, criter
             with torch.no_grad():
                 val_batch_processed = 1
                 for val_batch in val_dataloader:
-                    x_val, y_val = (val_batch[0].to(device=device, dtype=torch.float),
-                                    val_batch[1].to(device=device, dtype=torch.float))
+                    x_val, x2_val, y_val = (val_batch[0].to(device=device, dtype=torch.float),
+                                            val_batch[1].to(device=device, dtype=torch.float),
+                                            val_batch[2].to(device=device, dtype=torch.float))
 
                     val_batch_len = len(x_val)
 
-                    y_val_pred = model(x_val)
+                    y_val_pred = model([x_val, x2_val])
 
                     val_loss = criterion(input=y_val_pred, target=y_val)
 

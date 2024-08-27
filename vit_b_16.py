@@ -15,9 +15,7 @@ from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype1Dropout,
                                             Resnet50Prototype2Dropout,
                                             Resnet50Prototype3Dropout,
-                                            VitPrototype1Dropout,
-                                            VitPrototype2Dropout,
-                                            VitPrototype3MHA)
+                                            VitPrototype1Dropout)
 from tqdm.auto import tqdm
 import pandas as pd
 from prototypes.deeplearning.trainner import score
@@ -31,9 +29,7 @@ model_selection = {"prototype1" : Resnet50Prototype1,
                    "prototype1Dropout" : Resnet50Prototype1Dropout,
                    "prototype2Dropout" : Resnet50Prototype2Dropout,
                    "prototype3Dropout" : Resnet50Prototype3Dropout,
-                   "vit16Dropout":VitPrototype1Dropout,
-                   "vit16MixDropout": VitPrototype2Dropout,
-                   "vit16MHA": VitPrototype3MHA}
+                   "vit16Dropout":VitPrototype1Dropout}
 
 
 class Augmentation():
@@ -49,7 +45,6 @@ def score_model(config, dataloader):
     model_loaded.load_state_dict(
         torch.load(os.path.join("checkpoint_resnet50_mix_up", f"{config.get_value('VERSION')}_{config.get_value('MODEL')}_best.pt"), weights_only=True))
 
-    model_loaded.eval()
     model_loaded = model_loaded.cuda()
 
     y_pred = []
@@ -57,11 +52,11 @@ def score_model(config, dataloader):
 
     for batch in tqdm(dataloader):
         x = batch[0].cuda()
-        metadata_x = batch[1].cuda()
-        y = batch[2].cuda()
+        y = batch[1].cuda()
 
+        model_loaded.eval()
         with torch.no_grad():
-            y_pred.extend(model_loaded([x.float(), metadata_x.float()]).cpu().numpy())
+            y_pred.extend(model_loaded(x).cpu().numpy())
             y_true.extend(y.cpu().numpy())
 
     solution_df = pd.DataFrame(zip(y_true, [e[0] for e in y_true]), columns=['isic_id', 'target'])
@@ -98,17 +93,16 @@ def main():
 
     dataloader = LoadDataVectors(hd5_file_path=os.path.join(config.get_value("DATASET_PATH"), "train-image.hdf5"),
                                  metadata_csv_path=config.get_value("TRAIN_METADATA"),
-                                metadata_columns=config.get_value("METADATA_COLUMNS").split("\t"),
                                  transform=model.weights.transforms())
 
     train, val = torch.utils.data.random_split(dataloader,
                                                [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
 
-    # TODO: split the physical HD5 this doesn't work is a fucking shit.
     # folds = torch.utils.data.random_split(dataloader, [0.25, 0.25, 0.25, 0.25, 0.25])
-    # if config.get_value("PER_SAMPLE_AUGMENTATION"):
-    #     train.dataset.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform),
-    #                                                       model.weights.transforms()])
+
+    if config.get_value("PER_SAMPLE_AUGMENTATION"):
+        train.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform),
+                                                          model.weights.transforms()])
 
     train_sampler = val_sampler = None
     shuffle = True

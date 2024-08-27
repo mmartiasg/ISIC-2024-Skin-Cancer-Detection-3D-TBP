@@ -117,7 +117,7 @@ def main():
 
         print(len(train_x), len(val_x))
         print(len(train_y), len(val_y))
-        train = IsicDataLoader(x=train_x, y=train_y, transform=augmentation_transform_pipeline)
+        train = IsicDataLoader(x=train_x, y=train_y, transform=model.weights.transforms)
         val = IsicDataLoader(x=val_x, y=val_y, transform=model.weights.transforms)
 
         train_sampler = val_sampler = None

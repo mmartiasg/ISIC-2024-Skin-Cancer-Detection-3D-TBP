@@ -96,7 +96,7 @@ def main():
     isic_id, metadata_array, labels = metadata_df["isic_id"].values, metadata_df[columns].values, metadata_df[
         "target"].values
 
-    folds_config_dict = create_folds(isic_id=isic_id, metadata=metadata_array, labels=labels)
+    folds_config_dict = create_folds(isic_id=isic_id, metadata=metadata_array, labels=labels, config=config)
 
     total_val_history = []
     total_score = []

@@ -124,7 +124,7 @@ class MixUpV1():
         self.beta_dist = torch.distributions.beta.Beta(alpha, alpha)
 
     def __call__(self, batch):
-        '''Returns mixed inputs, pairs of targets, and lambda'''
+        """Returns mixed inputs, pairs of targets, and lambda"""
         x1, y = torch.utils.data.default_collate(batch)
         lam = self.beta_dist.sample()
         index = torch.randperm(x1.size()[0])
@@ -137,7 +137,7 @@ class MixUpV2():
         self.beta_dist = torch.distributions.beta.Beta(alpha, alpha)
 
     def __call__(self, batch):
-        '''Returns mixed inputs, pairs of targets, and lambda'''
+        """Returns mixed inputs, pairs of targets, and lambda"""
         x1, x2, y = torch.utils.data.default_collate(batch)
         lam = self.beta_dist.sample()
         index = torch.randperm(x1.size()[0])
@@ -244,7 +244,9 @@ def train_single_task_v1(model, train_dataloader, val_dataloader, optimizer, cri
     save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", version=f'{config.get_value("VERSION")}_{config.get_value("MODEL")}', logger=logger)
     early_stopping = EarlyStopping(tolerance=config.get_value("TOLERANCE_EARLY_STOPPING"))
 
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, verbose=True)
+    scheduler = None
+    if config.get_value("ENABLED_EXPONENTIAL_LR"):
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, verbose=True)
 
     train_epoch_loss = Mean().to("cpu")
     val_epoch_loss = Mean().to("cpu")
@@ -257,10 +259,14 @@ def train_single_task_v1(model, train_dataloader, val_dataloader, optimizer, cri
 
             model.train()
             for train_batch in train_dataloader:
-                mix_x, y_a, y_b, lam = (train_batch[0].to(device=device, dtype=torch.float),
-                                        train_batch[1].to(device=device, dtype=torch.float),
-                                        train_batch[2].to(device=device, dtype=torch.float),
-                                        train_batch[3].to(device=device, dtype=torch.float))
+
+                if config.get_value("USING_MIXUP"):
+                    mix_x, y_a, y_b, lam = (train_batch[0].to(device=device, dtype=torch.float),
+                                            train_batch[1].to(device=device, dtype=torch.float),
+                                            train_batch[2].to(device=device, dtype=torch.float),
+                                            train_batch[3].to(device=device, dtype=torch.float))
+                else:
+                    mix_x, y = (train_batch[0].to(device=device, dtype=torch.float), train_batch[1].to(device=device, dtype=torch.float))
 
                 train_batch_len = len(mix_x)
 
@@ -268,8 +274,11 @@ def train_single_task_v1(model, train_dataloader, val_dataloader, optimizer, cri
 
                 y_train_pred = model(mix_x).to(device=device)
 
-                train_loss = (criterion(input=y_train_pred, target=y_a) * lam +
-                              criterion(input=y_train_pred, target=y_b) * (1-lam))
+                if config.get_value("USING_MIXUP"):
+                    train_loss = (criterion(input=y_train_pred, target=y_a) * lam +
+                                  criterion(input=y_train_pred, target=y_b) * (1-lam))
+                else:
+                    train_loss = criterion(input=y_train_pred, target=y)
 
                 train_loss.backward()
                 optimizer.step()
@@ -306,7 +315,8 @@ def train_single_task_v1(model, train_dataloader, val_dataloader, optimizer, cri
             train_epoch_loss.reset()
             val_epoch_loss.reset()
             #Scheduler step
-            scheduler.step()
+            if scheduler:
+                scheduler.step()
 
             train_history_epoch_loss.append(train_loss_epoch_value)
             val_history_epoch_loss.append(val_loss_epoch_value)

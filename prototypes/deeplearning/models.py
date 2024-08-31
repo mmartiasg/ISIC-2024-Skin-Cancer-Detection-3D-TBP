@@ -1,6 +1,8 @@
 import torch
 import torchvision
+from prototypes.utility.data import ProjectConfiguration
 
+config = ProjectConfiguration("config.json")
 
 class ClassificationHead(torch.nn.Module):
     def __init__(self, num_classes):
@@ -53,9 +55,10 @@ class ClassificationHeadDropoutVit_16(torch.nn.Module):
         x = self.ffc2(x)
         return self.out(x)
 
+
 class ClassificationHeadVit_16(torch.nn.Module):
     def __init__(self, num_classes, dropout_rate=0.4):
-        super(ClassificationHeadDropoutVit_16, self).__init__()
+        super(ClassificationHeadVit_16, self).__init__()
         self.num_classes = num_classes
         self.ffc1 = torch.nn.Linear(in_features=768, out_features=512)
         self.relu = torch.nn.ReLU(inplace=True)
@@ -63,7 +66,6 @@ class ClassificationHeadVit_16(torch.nn.Module):
         self.out = torch.nn.Sigmoid()
 
     def forward(self, x):
-        x = self.dropout(x)
         x = self.ffc1(x)
         x = self.relu(x)
         x = self.ffc2(x)
@@ -132,7 +134,7 @@ class Resnet50Prototype2Dropout(torch.nn.Module):
         self.set_up()
 
     def set_up(self):
-        self.model.fc = ClassificationHeadDropout(self.n_classes, dropout_rate=0.6)
+        self.model.fc = ClassificationHeadDropout(self.n_classes, dropout_rate=0.1)
         for param in self.model.layer1.parameters():
             param.requires_grad = False
         for param in self.model.layer2.parameters():
@@ -187,13 +189,30 @@ class Resnet50Prototype3Dropout(torch.nn.Module):
 class VitPrototype1Dropout(torch.nn.Module):
     def __init__(self, n_classes):
         super(VitPrototype1Dropout, self).__init__()
+        # self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_E2E_V1
         self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
         self.model = torchvision.models.vit_b_16(weights=self.weights)
         self.n_classes = n_classes
         self.set_up()
 
     def set_up(self):
-        self.model.heads = ClassificationHeadDropoutVit_16(self.n_classes, dropout_rate=0.6)
+        self.model.heads = ClassificationHeadDropoutVit_16(self.n_classes, dropout_rate=0.10)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class VitPrototype1(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(VitPrototype1, self).__init__()
+        # self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_E2E_V1
+        self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
+        self.model = torchvision.models.vit_b_16(weights=self.weights)
+        self.n_classes = n_classes
+        self.set_up()
+
+    def set_up(self):
+        self.model.heads = ClassificationHeadVit_16(self.n_classes)
 
     def forward(self, x):
         return self.model(x)
@@ -260,16 +279,24 @@ class VitPrototype3MHA(torch.nn.Module):
         return self.classification_head(mix)
 
 
-class VitPrototype1(torch.nn.Module):
+class Vit16(torch.nn.Module):
     def __init__(self, n_classes):
-        super(VitPrototype1, self).__init__()
-        self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
-        self.model = torchvision.models.vit_b_16(weights=self.weights)
-        self.n_classes = n_classes
-        self.set_up()
-
-    def set_up(self):
-        self.model.heads = ClassificationHeadVit_16(self.n_classes, dropout_rate=0.6)
+        super(Vit16, self).__init__()
+        self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.vit_b_16(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
 
     def forward(self, x):
-        return self.model(x)
+        logit = self.model(x)
+        return self.out(logit)
+
+class MaxVit(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(MaxVit, self).__init__()
+        self.weights = torchvision.models.MaxVit_T_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.maxvit_t(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        logit = self.model(x)
+        return self.out(logit)

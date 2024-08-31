@@ -41,7 +41,8 @@ class Augmentation():
 
 
 def score_model(config, dataloader):
-    model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
+    # model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
+    model_loaded = torchvision.models.vit_b_16(image_size=384, num_classes=config.get_value("NUM_CLASSES"))
     model_loaded.load_state_dict(
         torch.load(os.path.join("checkpoint_resnet50_mix_up", f"{config.get_value('VERSION')}_{config.get_value('MODEL')}_best.pt"), weights_only=True))
 
@@ -56,7 +57,7 @@ def score_model(config, dataloader):
 
         model_loaded.eval()
         with torch.no_grad():
-            y_pred.extend(model_loaded(x).cpu().numpy())
+            y_pred.extend(torch.sigmoid(model_loaded(x)).cpu().numpy())
             y_true.extend(y.cpu().numpy())
 
     solution_df = pd.DataFrame(zip(y_true, [e[0] for e in y_true]), columns=['isic_id', 'target'])
@@ -71,7 +72,8 @@ def main():
     logger = logging.getLogger(__name__)
     logging.basicConfig(filename=f'results/{config.get_value("VERSION")}_{config.get_value("MODEL")}_scores.log', encoding='utf-8', level=logging.INFO)
 
-    model = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
+    # model = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
+    model = torchvision.models.vit_b_16(image_size=224, num_classes=config.get_value("NUM_CLASSES"))
     model = model.to(device=config.get_value("TRAIN_DEVICE"))
 
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
@@ -93,7 +95,7 @@ def main():
 
     dataloader = LoadDataVectors(hd5_file_path=os.path.join(config.get_value("DATASET_PATH"), "train-image.hdf5"),
                                  metadata_csv_path=config.get_value("TRAIN_METADATA"),
-                                 transform=model.weights.transforms())
+                                 transform=torchvision.models.ViT_B_16_Weights.IMAGENET1K_V1.transforms())
 
     train, val = torch.utils.data.random_split(dataloader,
                                                [config.get_value("TRAIN_SPLIT"), 1 - config.get_value("TRAIN_SPLIT")])
@@ -102,7 +104,7 @@ def main():
 
     if config.get_value("PER_SAMPLE_AUGMENTATION"):
         train.transform = torchvision.transforms.Compose([Augmentation(augmentation_transform=augmentation_transform),
-                                                          model.weights.transforms()])
+                                                          torchvision.models.ViT_B_16_Weights.IMAGENET1K_V1.transforms()])
 
     train_sampler = val_sampler = None
     shuffle = True
@@ -134,7 +136,7 @@ def main():
                       train_dataloader=train_dataloader,
                       val_dataloader=val_dataloader,
                       optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
-                      criterion=torch.nn.BCELoss(),
+                      criterion=torch.nn.BCEWithLogitsLoss(),#torch.nn.BCELoss(),
                       device=config.get_value("TRAIN_DEVICE"),
                       epochs=config.get_value("NUM_EPOCHS"),
                       config=config)

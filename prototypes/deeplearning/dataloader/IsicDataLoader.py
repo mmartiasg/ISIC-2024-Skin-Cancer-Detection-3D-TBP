@@ -1,11 +1,11 @@
 import cv2
 import torch
 import h5py
+import torchvision
 from PIL import Image
 import pandas as pd
 import io
 import numpy as np
-import glob
 import os
 import re
 from prototypes.classical.segmentation.transformers import OtsuThresholdingSegmentation, BlackBarsRemover
@@ -13,7 +13,23 @@ from sklearn.model_selection import StratifiedKFold
 import math
 import copy
 from tqdm.auto import tqdm
-import albumentations as A
+import glob
+
+
+def mixup_data(x, ids, alpha=0.2):
+    '''Returns mixed inputs, pairs of targets, and lambda'''
+
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1
+
+    batch_size = x.shape[0]
+    index = np.random.permutation(batch_size)
+
+    mixed_x = lam * x + (1 - lam) * x[index, :]
+
+    return mixed_x.astype(np.uint8), ids[index]
 
 
 def create_folds(isic_id, metadata, labels, config):
@@ -43,26 +59,54 @@ class AugmentationWrapper():
         self.augmentation_transform = augmentation_transform
 
     def __call__(self, sample):
-        return Image.fromarray(self.augmentation_transform(image=sample)["image"])
+        return Image.fromarray(self.augmentation_transform(image=np.array(sample))["image"])
 
 
-class IsicDataLoader(torch.utils.data.Dataset):
+class IsicDataLoaderMemory(torch.utils.data.Dataset):
     def __init__(self, x, y, transform=None, target_transform=None):
-        super(IsicDataLoader, self).__init__()
+        super(IsicDataLoaderMemory, self).__init__()
         self.x = x
         self.y = y
         self.transform = transform
-        self.transform = target_transform
+        self.target_transform = target_transform
 
     def __len__(self):
         return len(self.x)
 
     def __getitem__(self, idx):
         x = self.x[idx]
-        y = self.y[idx]
 
-        if self.transform is not None:
+        if self.transform:
             x = self.transform(x)
+
+        return x, torch.tensor([self.y[idx]])
+
+
+class IsicDataLoaderFolders(torch.utils.data.Dataset):
+    def __init__(self, root, transform=None, target_transform=None):
+        self.transform = transform
+        self.target_transform = target_transform
+        self.classes = os.listdir(root)
+        self.paths = []
+        for n_class in self.classes:
+            self.paths.extend(glob.glob(os.path.join(root, f"{n_class}", "*.jpg")))
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, idx):
+        x = Image.open(self.paths[idx])
+        y = int(self.paths[idx].split(os.sep)[-2])
+
+        if self.transform:
+            x = self.transform(x)
+        else:
+            x = torchvision.transforms.ToTensor()(x)
+
+        if self.target_transform:
+            y = self.target_transform(y)
+        else:
+            y = torch.tensor([y])
 
         return x, y
 
@@ -132,34 +176,49 @@ class LoadPreProcessVectors(torch.utils.data.Dataset):
         return x, y
 
 
-def over_under_sample(anomaly_images, normal_images, config, augmentation_transform, total_samples=10000, imbalance_percentage=0.5):
-    assert total_samples > anomaly_images.shape[0] * 2
+def over_under_sample(anomaly_images_ids, normal_images_ids, augmentation_transform, root_path, config):
+    if config.get_value("TOTAL_TRAIN_SAMPLES") is not None and config.get_value("TOTAL_TRAIN_SAMPLES") < anomaly_images_ids.shape[0] + normal_images_ids.shape[0]:
+        total_samples = config.get_value("TOTAL_TRAIN_SAMPLES")
+    else:
+        total_samples = anomaly_images_ids.shape[0] + normal_images_ids.shape[0]
+
+    imbalance_percentage = config.get_value("CLASS_BALANCE_PERCENTAGE")
+
     assert 0 < imbalance_percentage <= 0.5
+    normal_image_percentage = 1 - imbalance_percentage
 
-    normal_percentage = total_samples * 0.45 / normal_images.shape[0]
-    iterations = math.ceil(normal_images.shape[0] * normal_percentage / anomaly_images.shape[0])
-    sampled_ids = np.random.choice(normal_images, math.ceil(total_samples * imbalance_percentage))
+    print(f"Target: Normal samples count: {math.ceil(total_samples * normal_image_percentage)} | Target: Anomally samples count: {math.ceil(total_samples * imbalance_percentage)} ")
 
-    augmented_images = []
-    for _ in tqdm(range(iterations)):
-        for image_name in anomaly_images:
-            sample_image = copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name+".jpg")).resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH"))))
-            augmented_image = augmentation_transform(image=np.array(sample_image))
-            augmented_images.append(Image.fromarray(augmented_image["image"]))
+    iterations = math.ceil((total_samples * imbalance_percentage) / anomaly_images_ids.shape[0])
 
-    normal_images_sampling = []
-    for image_name in tqdm(sampled_ids):
-        normal_images_sampling.append(copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_name+".jpg")).resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH")))))
+    print(f"Iterations needed to reach target count for anomaly samples: {iterations} | Anomaly original count: {anomaly_images_ids.shape[0]}")
+    for iteration in tqdm(range(iterations)):
 
-    total_images = np.vstack((augmented_images, normal_images_sampling))
-    targets = np.zeros(len(total_images))
-    targets[:len(augmented_images)] = 1
+        image_buffer = np.zeros((len(anomaly_images_ids), config.get_value("IMAGE_WIDTH"),
+                                 config.get_value("IMAGE_HEIGHT"), 3))
 
-    seed = np.random.randint(0, 255)
-    np.random.RandomState(seed).shuffle(total_images)
-    np.random.RandomState(seed).shuffle(targets)
+        for suffix_index, image_id in enumerate(anomaly_images_ids):
+            sample_image = copy.deepcopy(Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_id+".jpg")
+                                                    ).resize((config.get_value("IMAGE_WIDTH"),
+                                                              config.get_value("IMAGE_HEIGHT")))
+                                         )
 
-    return total_images, targets
+            augmented_image = augmentation_transform(image=np.array(sample_image))['image']
+            image_buffer[suffix_index] = copy.deepcopy(augmented_image)
+
+        mixed_images, mixed_ids = mixup_data(image_buffer, ids=anomaly_images_ids, alpha=0.8)
+
+        for suffix_index, mixed in enumerate(zip(mixed_images, mixed_ids)):
+            mixed_image, mixed_id = mixed
+            Image.fromarray(mixed_image).save(os.path.join(root_path, "train", "1", f"{mixed_id}_{iteration}_{suffix_index}.jpg"))
+
+    sampled_ids = np.random.choice(normal_images_ids, size=math.ceil(total_samples * normal_image_percentage), replace=False)
+    print(f"Sampled normal images: {len(sampled_ids)} | unique numbers: {len(np.unique(sampled_ids))}")
+    for image_id in tqdm(sampled_ids):
+        # TODO: should I apply the same augmentation to normal images here or Is better to do it in the traning loop?
+        Image.open(os.path.join(config.get_value("TRAIN_IMAGES_PATH"), image_id+".jpg"))\
+            .resize((config.get_value("IMAGE_WIDTH"), config.get_value("IMAGE_WIDTH")))\
+            .save(os.path.join(root_path, "train", "0", f"{image_id}.jpg"))
 
 
 def load_val_images(val_ids, val_target, config):

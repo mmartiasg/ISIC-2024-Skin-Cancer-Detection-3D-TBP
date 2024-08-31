@@ -5,6 +5,16 @@ __pycache__/
 
 *config.json
 
+#models checkpoints
+checkpoint_resnet50_mix_up/
+
+#models logs
+results/
+
+#models export files
+*.pth
+*.pt
+
 # C extensions
 *.so
 

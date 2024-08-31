@@ -5,7 +5,7 @@ import json
 import numpy as np
 
 
-class DataLoader():
+class DataLoader:
     def __init__(self, data_path, metadata_path):
         self.data_path = data_path
         self.metadata_df = pd.read_csv(metadata_path, engine='python')
@@ -29,7 +29,7 @@ class DataLoader():
         return images
 
 
-class ProjectConfiguration():
+class ProjectConfiguration:
     def __init__(self, config_path):
         with open(config_path, "r") as f:
             self.config = json.load(f)

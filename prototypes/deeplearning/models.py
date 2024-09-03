@@ -249,18 +249,19 @@ class VitPrototype2Dropout(torch.nn.Module):
         return self.classification_head(mix_activation)
 
 
-class VitPrototypeMHA(torch.nn.Module):
+class Vit_b_16_MHA(torch.nn.Module):
     def __init__(self, n_classes):
-        super(VitPrototypeMHA, self).__init__()
+        super(Vit_b_16_MHA, self).__init__()
         self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
-        self.model = torchvision.models.vit_b_16(num_clases=n_classes)
+        self.model = torchvision.models.vit_b_16(num_classes=n_classes)
         self.n_classes = n_classes
         self.set_up()
 
     def set_up(self):
         # self.metadata_encoding_layer = torch.nn.Linear(in_features=32, out_features=32)
         self.classification_head = ClassificationHeadDropoutVit_16(self.n_classes, in_features=768, out_features=512, dropout_rate=0.6)
-        self.batch_norm = torch.nn.BatchNorm1d(num_features=32)
+        # self.batch_norm = torch.nn.BatchNorm1d(num_features=6)
+        self.affine_transform = torch.nn.Linear(in_features=6, out_features=32)
         self.self_attention_q = torch.nn.MultiheadAttention(embed_dim=32, num_heads=8, dropout=0.1)
         self.decoder_mha = torch.nn.MultiheadAttention(embed_dim=32, kdim=768, vdim=768, num_heads=8)
         self.model.heads = torch.nn.Identity()
@@ -272,11 +273,13 @@ class VitPrototypeMHA(torch.nn.Module):
         metadata_x = x[1]
 
         image_encoding = self.model(image_x)
-        metadata_x = self.batch_norm(metadata_x)
+        # metadata_x = self.batch_norm(metadata_x)
+        metadata_x = self.affine_transform(metadata_x)
         metadata_encoding, _ = self.self_attention_q(query=metadata_x, key=metadata_x, value=metadata_x, average_attn_weights=False)
         residual_metadata_encoding = self.batch_norm2(metadata_x + metadata_encoding)
         attention, _ = self.decoder_mha(query=residual_metadata_encoding, key=image_encoding, value=image_encoding, average_attn_weights=False)
         mix = self.mixing_layer(torch.cat((attention, image_encoding), dim=1))
+
         return self.classification_head(mix)
 
 

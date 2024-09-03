@@ -107,7 +107,7 @@ class SaveBestModel:
     def __init__(self, path, logger, version, direction):
         self.path = path
         self.logger = logger
-        self.best_validation_loss = float('inf') if direction == "min" else 0.0
+        self.best_validation_loss = float('inf') if direction == "min" else -float('inf')
         self.version = version
         self.direction = operator.gt if direction == 'max' else operator.lt
         os.makedirs(self.path, exist_ok=True)
@@ -124,7 +124,7 @@ class SaveBestModel:
             self.best_validation_loss = validation_loss
 
 
-class MixUpV1():
+class MixUpV1:
     def __init__(self, alpha=0.2):
         self.beta_dist = torch.distributions.beta.Beta(alpha, alpha)
 
@@ -137,7 +137,7 @@ class MixUpV1():
         return lam * x1 + (1 - lam) * x1[index, :], y, y[index], lam
 
 
-class MixUpV2():
+class MixUpV2:
     def __init__(self, alpha=0.2):
         self.beta_dist = torch.distributions.beta.Beta(alpha, alpha)
 
@@ -147,7 +147,7 @@ class MixUpV2():
         lam = self.beta_dist.sample()
         index = torch.randperm(x1.size()[0])
 
-        return lam * x1 + (1 - lam) * x1[index, :], y, y[index], lam, x2
+        return lam * x1 + (1 - lam) * x1[index, :], y, y[index], lam, lam * x2 + (1 - lam) * x2[index, :]
 
 
 def roc_auc_metric(y_pred, y_true):
@@ -171,10 +171,12 @@ def train_single_task_v2(model, train_dataloader, val_dataloader, optimizer, cri
     val_history_epoch_loss = []
     val_metric_epoch = []
 
-    save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", version=f'{config.get_value("VERSION")}_{config.get_value("MODEL")}', logger=logger)
-    early_stopping = EarlyStopping(tolerance=config.get_value("TOLERANCE_EARLY_STOPPING"))
+    save_best_model = SaveBestModel("checkpoint_resnet50_mix_up", version=f'{config.get_value("VERSION")}_{config.get_value("MODEL")}', logger=logger, direction="max")
+    early_stopping = EarlyStopping(tolerance=config.get_value("TOLERANCE_EARLY_STOPPING"), direction="max")
 
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, verbose=True)
+    scheduler = None
+    if config.get_value("ENABLED_EXPONENTIAL_LR"):
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9, verbose=True)
 
     train_epoch_loss = Mean().to("cpu")
     val_epoch_loss = Mean().to("cpu")
@@ -187,11 +189,17 @@ def train_single_task_v2(model, train_dataloader, val_dataloader, optimizer, cri
 
             model.train()
             for train_batch in train_dataloader:
-                mix_x, y_a, y_b, lam, metadata_x = (train_batch[0].to(device=device, dtype=torch.float),
-                                        train_batch[1].to(device=device, dtype=torch.float),
-                                        train_batch[2].to(device=device, dtype=torch.float),
-                                        train_batch[3].to(device=device, dtype=torch.float),
-                                        train_batch[4].to(device=device, dtype=torch.float))
+
+                if config.get_value("USING_MIXUP"):
+                    mix_x, y_a, y_b, lam, metadata_x = (train_batch[0].to(device=device, dtype=torch.float),
+                                                        train_batch[1].to(device=device, dtype=torch.float),
+                                                        train_batch[2].to(device=device, dtype=torch.float),
+                                                        train_batch[3].to(device=device, dtype=torch.float),
+                                                        train_batch[4].to(device=device, dtype=torch.float))
+                else:
+                    mix_x, metadata_x, y = (train_batch[0].to(device=device, dtype=torch.float),
+                                            train_batch[1].to(device=device, dtype=torch.float),
+                                            train_batch[2].to(device=device, dtype=torch.float))
 
                 train_batch_len = len(mix_x)
 
@@ -208,13 +216,15 @@ def train_single_task_v2(model, train_dataloader, val_dataloader, optimizer, cri
                 y_pred = train_loss.detach().cpu()
                 train_epoch_loss.update(y_pred * train_batch_len)
                 train_loss_epoch_value = train_epoch_loss.compute().item()
-                metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val_loss: {round(val_loss_epoch_value, 4)}]")
+                metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val loss: {round(val_loss_epoch_value, 4)}] - [Val Metric RoC>0.8: {val_metric_epoch_value}")
 
                 epoch_p_bar.set_description(f"{metric_update} | Train batch processed: {train_batch_processed} - {len(train_dataloader)} - {math.ceil(train_batch_processed / len(train_dataloader) * 100)}%")
                 train_batch_processed += 1
 
             # Validation
             model.eval()
+            y_val_preds_list = []
+            y_val_list = []
             with torch.no_grad():
                 val_batch_processed = 1
                 for val_batch in val_dataloader:
@@ -231,10 +241,10 @@ def train_single_task_v2(model, train_dataloader, val_dataloader, optimizer, cri
                     val_epoch_loss.update(val_loss.detach().cpu() * val_batch_len)
                     val_loss_epoch_value = val_epoch_loss.compute().item()
 
-                    val_metric.update(roc_auc_metric(y_val_pred.cpu().numpy(), y_val.cpu().numpy()))
-                    val_metric_epoch_value = val_metric.compute().item()
+                    y_val_preds_list.append(y_val_pred.cpu().numpy())
+                    y_val_list.append(y_val.cpu().numpy())
 
-                    metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val loss: {round(val_loss_epoch_value, 4)}] - [Val Metric RoC>0.8: {val_metric_epoch_value}")
+                    metric_update = (f"[Train loss: {round(train_loss_epoch_value, 4)}] - [Val loss: {round(val_loss_epoch_value, 4)}] - [Val Metric RoC>0.8: {round(val_metric_epoch_value, 4)}")
 
                     epoch_p_bar.set_description(f"{metric_update} | Val batch processed: {val_batch_processed} - {len(val_dataloader)} - {math.ceil(val_batch_processed / len(val_dataloader) * 100)}%")
                     val_batch_processed += 1
@@ -242,8 +252,11 @@ def train_single_task_v2(model, train_dataloader, val_dataloader, optimizer, cri
             #Clean metrics state at the end of the epoch
             train_epoch_loss.reset()
             val_epoch_loss.reset()
+            val_metric.reset()
+
             #Scheduler step
-            scheduler.step()
+            if scheduler:
+                scheduler.step()
 
             train_history_epoch_loss.append(train_loss_epoch_value)
             val_history_epoch_loss.append(val_loss_epoch_value)

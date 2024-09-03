@@ -7,7 +7,7 @@ from prototypes.utility.data import ProjectConfiguration
 import torchvision
 import os
 import matplotlib.pyplot as plt
-from prototypes.deeplearning.trainner import MixUpV1
+from prototypes.deeplearning.trainner import MixUpV1, MixUpV2
 from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype2,
                                             Resnet50Prototype3,
@@ -16,6 +16,7 @@ from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype3Dropout,
                                             VitPrototype1Dropout,
                                             VitPrototype2Dropout,
+                                            Vit_b_16_MHA,
                                             Vit16,
                                             MaxVit,
                                             SwingB,
@@ -29,6 +30,7 @@ from prototypes.deeplearning.trainner import score
 import logging
 import albumentations as A
 import numpy as np
+from prototypes.deeplearning.dataloader.IsicDataLoader import metadata_transform
 
 
 model_selection = {"prototype1": Resnet50Prototype1,
@@ -40,7 +42,7 @@ model_selection = {"prototype1": Resnet50Prototype1,
                    "Vit16": Vit16,
                    "Vit16Dropout": VitPrototype1Dropout,
                    "vit16MixDropout": VitPrototype2Dropout,
-                   # "Vit16MHA": VitPrototype3MHA,
+                   "Vitb16MHA": Vit_b_16_MHA,
                    "MaxVit": MaxVit,
                    "SwingB": SwingB,
                    "SwingV2B": SwingV2B,
@@ -81,7 +83,7 @@ def main():
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
 
     # Augmentation cross sample
-    mix_up = MixUpV1(alpha=config.get_value("ALPHA"))
+    mix_up = MixUpV2(alpha=config.get_value("ALPHA"))
 
     folds = config.get_value("K_FOLDS")
 
@@ -121,14 +123,13 @@ def main():
         augmentation_transform_pipeline = torchvision.transforms.Compose(
             [AugmentationWrapper(augmentations), model.weights.transforms()])
 
-        root_folder_train = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "train")
-        train = IsicDataLoaderFolders(root=root_folder_train, transform=augmentation_transform_pipeline)
+        train_val_metadata = metadata_transform(pd.read_csv(config.get_value("TRAIN_METADATA"), engine="python"))
 
-        # root_folder_train = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "train")
-        # train = IsicDataLoaderFolders(root=root_folder_train, transform=model.weights.transforms())
+        root_folder_train = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "train")
+        train = IsicDataLoaderFolders(root=root_folder_train, transform=augmentation_transform_pipeline, metadata=train_val_metadata)
 
         root_folder_val = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "val")
-        val = IsicDataLoaderFolders(root=root_folder_val, transform=model.weights.transforms())
+        val = IsicDataLoaderFolders(root=root_folder_val, transform=model.weights.transforms(), metadata=train_val_metadata)
 
         train_sampler = val_sampler = None
         shuffle = True
@@ -145,6 +146,7 @@ def main():
                                                        collate_fn=mix_up if config.get_value("USING_MIXUP") else None,
                                                        prefetch_factor=config.get_value("PREFETCH_FACTOR"),
                                                        persistent_workers=False)
+
         val_dataloader = torch.utils.data.DataLoader(val, batch_size=config.get_value("BATCH_SIZE"),
                                                      shuffle=False,
                                                      num_workers=config.get_value("NUM_WORKERS"),
@@ -156,7 +158,7 @@ def main():
         print(f"Train set size: {len(train_dataloader.dataset)}\
          | Validation set size: {len(val_dataloader.dataset)}")
 
-        train_history, val_history, metric_history = train_single_task_v1(model=model,
+        train_history, val_history, metric_history = train_single_task_v2(model=model,
                           train_dataloader=train_dataloader,
                           val_dataloader=val_dataloader,
                           optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
@@ -178,8 +180,9 @@ def main():
         torch.cuda.empty_cache()
         gc.collect()
 
-        score = score_model(config, dataloader=val_dataloader)
-        logger.info(f"Model version: {config.get_value('VERSION')}_{config.get_value('MODEL')} score a : {score} in the validation dataset in FOLD: {fold_index + 1}")
+        #Do not need it anymore
+        # score = score_model(config, dataloader=val_dataloader)
+        # logger.info(f"Model version: {config.get_value('VERSION')}_{config.get_value('MODEL')} score a : {score} in the validation dataset in FOLD: {fold_index + 1}")
 
         total_score.append(score)
         total_val_history.extend(val_history)

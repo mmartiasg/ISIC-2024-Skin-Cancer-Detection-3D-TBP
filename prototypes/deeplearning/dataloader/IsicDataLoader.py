@@ -82,7 +82,7 @@ class IsicDataLoaderMemory(torch.utils.data.Dataset):
         return x, torch.tensor([self.y[idx]])
 
 
-def metadata_transform(df, mean=None, std=None):
+def metadata_transform(df, extra_files_path="metadata_files"):
     new_df = df.copy()
 
     sex = new_df.sex.apply(lambda x: 0 if x == "male" else 1).values.astype(np.float32)
@@ -96,16 +96,23 @@ def metadata_transform(df, mean=None, std=None):
     ids = new_df['isic_id']
 
     features = np.vstack([age_ratio_size_lesion, hue_contrast, luminance_contrast, lesion_color_difference,
-                          border_complexity, color_uniformity]).astype(np.float32)
+                          border_complexity, color_uniformity]).astype(np.float32).transpose(1, 0)
 
-    if mean and std:
-        mean = np.mean(features, axis=1).reshape(-1, 1)
-        std = np.std(features, axis=1).reshape(-1, 1)
+    if os.path.exists(extra_files_path):
+        mean = np.load(os.path.join(extra_files_path, "mean.npy"))
+        std = np.load(os.path.join(extra_files_path, "std.npy"))
+    else:
+        mean = np.mean(features, axis=0)
+        std = np.std(features, axis=0)
+
+        os.makedirs(extra_files_path, exist_ok=True)
+        np.save(os.path.join(extra_files_path, "mean.npy"), mean)
+        np.save(os.path.join(extra_files_path, "std.npy"), std)
 
     features -= mean
     features /= std
 
-    return dict(zip(ids, features)), mean, std
+    return dict(zip(ids, features))
 
 
 class IsicDataLoaderFolders(torch.utils.data.Dataset):
@@ -115,6 +122,7 @@ class IsicDataLoaderFolders(torch.utils.data.Dataset):
         self.classes = os.listdir(root)
         self.paths = []
         self.metadata_dict = metadata
+        self.regex_id = re.compile("^ISIC_\d+")
         for n_class in self.classes:
             self.paths.extend(glob.glob(os.path.join(root, f"{n_class}", "*.jpg")))
 
@@ -136,7 +144,7 @@ class IsicDataLoaderFolders(torch.utils.data.Dataset):
             y = torch.tensor([y])
 
         if self.metadata_dict:
-            return x, y, torch.tensor(self.metadata_dict[self.paths[idx].split(os.sep)[-1].split("_")[0]])
+            return x, torch.tensor(self.metadata_dict[self.regex_id.findall(self.paths[idx].split(os.sep)[-1])[0]]), y
 
         return x, y
 

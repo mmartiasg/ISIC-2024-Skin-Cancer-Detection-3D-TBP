@@ -1,7 +1,7 @@
 import gc
 
 from prototypes.deeplearning.dataloader.IsicDataLoader import IsicDataLoaderFolders, AugmentationWrapper
-from prototypes.deeplearning.trainner import train_single_task_v1
+from prototypes.deeplearning.trainner import train_single_task_v1, train_single_task_v2
 import torch
 from prototypes.utility.data import ProjectConfiguration
 import torchvision
@@ -16,9 +16,13 @@ from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype3Dropout,
                                             VitPrototype1Dropout,
                                             VitPrototype2Dropout,
-                                            VitPrototype3MHA,
                                             Vit16,
-                                            MaxVit)
+                                            MaxVit,
+                                            SwingB,
+                                            SwingV2B,
+                                            ResNex10164x4d,
+                                            WideResNet101)
+
 from tqdm.auto import tqdm
 import pandas as pd
 from prototypes.deeplearning.trainner import score
@@ -36,8 +40,13 @@ model_selection = {"prototype1": Resnet50Prototype1,
                    "Vit16": Vit16,
                    "Vit16Dropout": VitPrototype1Dropout,
                    "vit16MixDropout": VitPrototype2Dropout,
-                   "Vit16MHA": VitPrototype3MHA,
-                   "MaxVit": MaxVit}
+                   # "Vit16MHA": VitPrototype3MHA,
+                   "MaxVit": MaxVit,
+                   "SwingB": SwingB,
+                   "SwingV2B": SwingV2B,
+                   "ResNex10164x4d": ResNex10164x4d,
+                   "WideResNet101": WideResNet101}
+
 
 def score_model(config, dataloader):
     model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
@@ -87,27 +96,26 @@ def main():
 
         # Augmentation per sample
         augmentations = A.Compose([
-            A.CLAHE(p=0.05),
+            A.CLAHE(p=0.15),
             A.RandomRain(p=0.1, slant_lower=-10, slant_upper=10,
                          drop_length=20, drop_width=1, drop_color=(200, 200, 200),
                          blur_value=5, brightness_coefficient=0.9, rain_type=None),
             A.MedianBlur(p=0.15),
             # A.ToGray(p=0.05),
             A.ImageCompression(quality_lower=55, p=0.15),
-            A.Equalize(p=0.1),
+            # A.Equalize(p=0.15),
             A.ZoomBlur(p=0.15),
             A.GaussNoise(p=0.15),
             # A.RandomSnow(p=0.05),
-            A.Sharpen(p=0.05),
-            A.ChromaticAberration(p=0.05),
-            A.Rotate(limit=(-90, 90), p=0.05, crop_border=True),
+            A.Sharpen(p=0.15),
+            # A.ChromaticAberration(p=0.15),
+            A.Rotate(limit=(-90, 90), p=0.25, crop_border=True),
             A.VerticalFlip(p=0.15),
             A.HorizontalFlip(p=0.15),
-            # A.Transpose(p=0.15),
             A.Blur(blur_limit=3, p=0.1),
             A.OpticalDistortion(p=0.15),
             A.GridDistortion(p=0.15),
-            A.HueSaturationValue(p=0.15),
+            # A.HueSaturationValue(p=0.15),
         ])
 
         augmentation_transform_pipeline = torchvision.transforms.Compose(
@@ -148,7 +156,7 @@ def main():
         print(f"Train set size: {len(train_dataloader.dataset)}\
          | Validation set size: {len(val_dataloader.dataset)}")
 
-        train_history, val_history = train_single_task_v1(model=model,
+        train_history, val_history, metric_history = train_single_task_v1(model=model,
                           train_dataloader=train_dataloader,
                           val_dataloader=val_dataloader,
                           optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
@@ -159,10 +167,11 @@ def main():
 
         plt.plot(range(len(train_history)), train_history, label=f"Training Loss fold: {fold_index + 1}")
         plt.plot(range(len(val_history)), val_history, label=f"Validation Loss fold: {fold_index + 1}")
+        plt.plot(range(len(metric_history)), metric_history, label=f"Metric Val fold: {fold_index + 1}")
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(os.path.join("results", config.get_value("VERSION"), f"{config.get_value('MODEL')}_Training_val_loss_curves_{fold_index + 1}.png"))
+        plt.savefig(os.path.join("results", config.get_value("VERSION"), f"{config.get_value('MODEL')}_Training_val_loss_metric_val_curves_{fold_index + 1}.png"))
 
         # free up ram and vram
         del model

@@ -82,12 +82,39 @@ class IsicDataLoaderMemory(torch.utils.data.Dataset):
         return x, torch.tensor([self.y[idx]])
 
 
+def metadata_transform(df, mean=None, std=None):
+    new_df = df.copy()
+
+    sex = new_df.sex.apply(lambda x: 0 if x == "male" else 1).values.astype(np.float32)
+    age_ratio_size_lesion = (sex * new_df["clin_size_long_diam_mm"] * new_df["tbp_lv_symm_2axis"]).values.astype(np.float32)
+    hue_contrast = np.abs((new_df['tbp_lv_H'] - new_df['tbp_lv_Hext']).values).astype(np.float32)
+    luminance_contrast = np.abs((new_df['tbp_lv_L'] - new_df['tbp_lv_Lext']).values).astype(np.float32)
+    lesion_color_difference = np.sqrt((new_df['tbp_lv_deltaA']**2 + new_df["tbp_lv_deltaB"]**2 + new_df['tbp_lv_deltaL']**2).values).astype(np.float32)
+    border_complexity = (new_df['tbp_lv_norm_border'] + new_df['tbp_lv_symm_2axis']).values.astype(np.float32)
+    color_uniformity = (new_df['tbp_lv_color_std_mean'] / (new_df['tbp_lv_radial_color_std_max'] + 1e-5)).values.astype(np.float32)
+
+    ids = new_df['isic_id']
+
+    features = np.vstack([age_ratio_size_lesion, hue_contrast, luminance_contrast, lesion_color_difference,
+                          border_complexity, color_uniformity]).astype(np.float32)
+
+    if mean and std:
+        mean = np.mean(features, axis=1).reshape(-1, 1)
+        std = np.std(features, axis=1).reshape(-1, 1)
+
+    features -= mean
+    features /= std
+
+    return dict(zip(ids, features)), mean, std
+
+
 class IsicDataLoaderFolders(torch.utils.data.Dataset):
-    def __init__(self, root, transform=None, target_transform=None):
+    def __init__(self, root, transform=None, target_transform=None, metadata=None):
         self.transform = transform
         self.target_transform = target_transform
         self.classes = os.listdir(root)
         self.paths = []
+        self.metadata_dict = metadata
         for n_class in self.classes:
             self.paths.extend(glob.glob(os.path.join(root, f"{n_class}", "*.jpg")))
 
@@ -107,6 +134,9 @@ class IsicDataLoaderFolders(torch.utils.data.Dataset):
             y = self.target_transform(y)
         else:
             y = torch.tensor([y])
+
+        if self.metadata_dict:
+            return x, y, torch.tensor(self.metadata_dict[self.paths[idx].split(os.sep)[-1].split("_")[0]])
 
         return x, y
 

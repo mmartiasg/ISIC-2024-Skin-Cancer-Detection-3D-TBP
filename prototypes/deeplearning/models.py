@@ -4,6 +4,7 @@ from prototypes.utility.data import ProjectConfiguration
 
 config = ProjectConfiguration("config.json")
 
+
 class ClassificationHead(torch.nn.Module):
     def __init__(self, num_classes):
         super(ClassificationHead, self).__init__()
@@ -174,7 +175,7 @@ class Resnet50Prototype3Dropout(torch.nn.Module):
         self.set_up()
 
     def set_up(self):
-        self.model.fc = ClassificationHeadDropout(self.n_classes, dropout_rate=0.6)
+        self.model.fc = ClassificationHeadDropout(self.n_classes, dropout_rate=0.2)
         for param in self.model.layer1.parameters():
             param.requires_grad = False
         for param in self.model.layer2.parameters():
@@ -248,11 +249,11 @@ class VitPrototype2Dropout(torch.nn.Module):
         return self.classification_head(mix_activation)
 
 
-class VitPrototype3MHA(torch.nn.Module):
+class VitPrototypeMHA(torch.nn.Module):
     def __init__(self, n_classes):
-        super(VitPrototype3MHA, self).__init__()
+        super(VitPrototypeMHA, self).__init__()
         self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
-        self.model = torchvision.models.vit_b_16(weights=self.weights)
+        self.model = torchvision.models.vit_b_16(num_clases=n_classes)
         self.n_classes = n_classes
         self.set_up()
 
@@ -282,7 +283,7 @@ class VitPrototype3MHA(torch.nn.Module):
 class Vit16(torch.nn.Module):
     def __init__(self, n_classes):
         super(Vit16, self).__init__()
-        self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_V1
+        self.weights = torchvision.models.ViT_B_16_Weights.IMAGENET1K_SWAG_LINEAR_V1
         self.model = torchvision.models.vit_b_16(num_classes=n_classes)
         self.out = torch.nn.Sigmoid()
 
@@ -290,11 +291,60 @@ class Vit16(torch.nn.Module):
         logit = self.model(x)
         return self.out(logit)
 
+
 class MaxVit(torch.nn.Module):
     def __init__(self, n_classes):
         super(MaxVit, self).__init__()
         self.weights = torchvision.models.MaxVit_T_Weights.IMAGENET1K_V1
         self.model = torchvision.models.maxvit_t(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        logit = self.model(x)
+        return self.out(logit)
+
+
+class SwingB(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(SwingB, self).__init__()
+        self.weights = torchvision.models.Swin_B_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.swin_b(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        logit = self.model(x)
+        return self.out(logit)
+
+
+class SwingV2B(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(SwingV2B, self).__init__()
+        self.weights = torchvision.models.Swin_V2_B_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.swin_v2_b(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        logit = self.model(x)
+        return self.out(logit)
+
+
+class ResNex10164x4d(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(ResNex10164x4d, self).__init__()
+        self.weights = torchvision.models.ResNeXt101_64X4D_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.resnext101_64x4d(num_classes=n_classes)
+        self.out = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        logit = self.model(x)
+        return self.out(logit)
+
+
+class WideResNet101(torch.nn.Module):
+    def __init__(self, n_classes):
+        super(WideResNet101, self).__init__()
+        self.weights = torchvision.models.Wide_ResNet101_2_Weights.IMAGENET1K_V1
+        self.model = torchvision.models.wide_resnet101_2(num_classes=n_classes)
         self.out = torch.nn.Sigmoid()
 
     def forward(self, x):

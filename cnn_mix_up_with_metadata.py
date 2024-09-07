@@ -1,4 +1,5 @@
 import gc
+import shutil
 
 from prototypes.deeplearning.dataloader.IsicDataLoader import IsicDataLoaderFolders, AugmentationWrapper
 from prototypes.deeplearning.trainner import train_single_task_v1, train_single_task_v2
@@ -15,14 +16,15 @@ from prototypes.deeplearning.models import (Resnet50Prototype1,
                                             Resnet50Prototype2Dropout,
                                             Resnet50Prototype3Dropout,
                                             VitPrototype1Dropout,
-                                            VitPrototype2Dropout,
+                                            VitMetadata,
                                             Vit_b_16_MHA,
                                             Vit16,
                                             MaxVit,
                                             SwingB,
                                             SwingV2B,
                                             ResNex10164x4d,
-                                            WideResNet101)
+                                            WideResNet101,
+                                            Vit_b_16_MHA_V2)
 
 from tqdm.auto import tqdm
 import pandas as pd
@@ -32,7 +34,6 @@ import albumentations as A
 import numpy as np
 from prototypes.deeplearning.dataloader.IsicDataLoader import metadata_transform
 
-
 model_selection = {"prototype1": Resnet50Prototype1,
                    "prototype2": Resnet50Prototype2,
                    "prototype3": Resnet50Prototype3,
@@ -41,19 +42,83 @@ model_selection = {"prototype1": Resnet50Prototype1,
                    "prototype3Dropout": Resnet50Prototype3Dropout,
                    "Vit16": Vit16,
                    "Vit16Dropout": VitPrototype1Dropout,
-                   "vit16MixDropout": VitPrototype2Dropout,
                    "Vitb16MHA": Vit_b_16_MHA,
+                   "Vitb16MHAV2": Vit_b_16_MHA_V2,
                    "MaxVit": MaxVit,
                    "SwingB": SwingB,
                    "SwingV2B": SwingV2B,
                    "ResNex10164x4d": ResNex10164x4d,
-                   "WideResNet101": WideResNet101}
+                   "WideResNet101": WideResNet101,
+                   "VitImagePlusMetadata": VitMetadata}
+
+import torch
+import torch.nn as nn
+
+
+class PrecisionLoss(nn.Module):
+    def __init__(self):
+        super(PrecisionLoss, self).__init__()
+
+    def forward(self, input, target):
+        # Binarize the predictions
+        preds = torch.round(input)
+
+        # True Positives (TP)
+        TP = (preds * target).sum().float()
+
+        # False Positives (FP)
+        FP = (preds * (1 - target)).sum().float()
+
+        # Precision: TP / (TP + FP)
+        precision = TP / (TP + FP + 1e-7)  # Add epsilon to avoid division by zero
+
+        # Loss is 1 - Precision to maximize precision
+        loss = 1 - precision
+
+        return loss
+
+
+import torch
+import torch.nn as nn
+
+
+class AUCPairwiseLoss(nn.Module):
+    def __init__(self, margin=1.0):
+        super(AUCPairwiseLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, input, target):
+        # Separate positive and negative samples
+        pos_preds = input[target == 1].view(-1, 1)
+        neg_preds = input[target == 0].view(1, -1)
+
+        # Pairwise differences (negative should be lower than positive)
+        diff = neg_preds - pos_preds
+
+        # Hinge loss on pairwise differences
+        loss = torch.mean(torch.clamp(self.margin + diff, min=0))
+
+        return loss
+
+
+class SmoothAUCLoss(nn.Module):
+    def __init__(self, epsilon=1e-2):
+        super(SmoothAUCLoss, self).__init__()
+        self.epsilon = epsilon
+
+    def forward(self, input, target):
+        pos_preds = input[target == 1].view(-1, 1)
+        neg_preds = input[target == 0].view(1, -1)
+
+        return torch.mean(torch.sigmoid(neg_preds - pos_preds + self.epsilon))
 
 
 def score_model(config, dataloader):
     model_loaded = model_selection[config.get_value("MODEL")](n_classes=config.get_value("NUM_CLASSES"))
     model_loaded.load_state_dict(
-        torch.load(os.path.join("checkpoint_resnet50_mix_up", f"{config.get_value('VERSION')}_{config.get_value('MODEL')}_best.pt"), weights_only=True))
+        torch.load(os.path.join("checkpoint_resnet50_mix_up",
+                                f"{config.get_value('VERSION')}_{config.get_value('MODEL')}_best.pt"),
+                   weights_only=True))
 
     model_loaded.eval()
     model_loaded = model_loaded.cuda()
@@ -79,7 +144,8 @@ def main():
     config = ProjectConfiguration("config.json")
 
     logger = logging.getLogger(__name__)
-    logging.basicConfig(filename=f'results/{config.get_value("VERSION")}_{config.get_value("MODEL")}_scores.log', encoding='utf-8', level=logging.INFO)
+    logging.basicConfig(filename=f'results/{config.get_value("VERSION")}_{config.get_value("MODEL")}_scores.log',
+                        encoding='utf-8', level=logging.INFO)
     os.makedirs(os.path.join("results", config.get_value("VERSION")), exist_ok=True)
 
     # Augmentation cross sample
@@ -123,13 +189,33 @@ def main():
         augmentation_transform_pipeline = torchvision.transforms.Compose(
             [AugmentationWrapper(augmentations), model.weights.transforms()])
 
-        train_val_metadata = metadata_transform(pd.read_csv(config.get_value("TRAIN_METADATA"), engine="python"))
+        metadata_df = pd.read_csv(config.get_value("TRAIN_METADATA"), engine="python")
+
+        # metadata_df = metadata_df.interpolate(method='linear', limit_direction='both',
+        #                                                                   axis=0)
+
+        # metadata_df["age_approx"] = metadata_df["age_approx"].interpolate(method='linear', limit_direction='both',
+        #                                                                   axis=0)
+
+        # metadata_df["tbp_lv_nevi_confidence"] = metadata_df["tbp_lv_nevi_confidence"].interpolate(method='linear', limit_direction='both',
+        #                                                                   axis=0)
+        #
+        # metadata_df["tbp_lv_areaMM2"] = metadata_df["tbp_lv_areaMM2"].interpolate(method='linear', limit_direction='both',
+        #                                                                   axis=0)
+        #
+        # metadata_df["tbp_lv_symm_2axis"] = metadata_df["tbp_lv_symm_2axis"].interpolate(method='linear', limit_direction='both',
+        #                                                                   axis=0)
+
+        shutil.rmtree("metadata_files")
+        train_val_metadata = metadata_transform(metadata_df)
 
         root_folder_train = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "train")
-        train = IsicDataLoaderFolders(root=root_folder_train, transform=augmentation_transform_pipeline, metadata=train_val_metadata)
+        train = IsicDataLoaderFolders(root=root_folder_train, transform=augmentation_transform_pipeline,
+                                      metadata=train_val_metadata)
 
         root_folder_val = os.path.join(config.get_value("DATASET_PATH"), "splits", f"fold_{fold_index + 1}", "val")
-        val = IsicDataLoaderFolders(root=root_folder_val, transform=model.weights.transforms(), metadata=train_val_metadata)
+        val = IsicDataLoaderFolders(root=root_folder_val, transform=model.weights.transforms(),
+                                    metadata=train_val_metadata)
 
         train_sampler = val_sampler = None
         shuffle = True
@@ -159,13 +245,18 @@ def main():
          | Validation set size: {len(val_dataloader.dataset)}")
 
         train_history, val_history, metric_history = train_single_task_v2(model=model,
-                          train_dataloader=train_dataloader,
-                          val_dataloader=val_dataloader,
-                          optimizer=torch.optim.Adam(params=model.parameters(), lr=config.get_value("LEARNING_RATE")),
-                          criterion=torch.nn.BCELoss(),
-                          device=config.get_value("TRAIN_DEVICE"),
-                          epochs=config.get_value("NUM_EPOCHS"),
-                          config=config)
+                                                                          train_dataloader=train_dataloader,
+                                                                          val_dataloader=val_dataloader,
+                                                                          optimizer=torch.optim.Adam(
+                                                                              params=model.parameters(),
+                                                                              lr=config.get_value("LEARNING_RATE")),
+                                                                          criterion_main=SmoothAUCLoss(epsilon=1e-2),
+                                                                          criterion_aux=torch.nn.BCELoss(),
+                                                                          #SmoothAUCLoss(epsilon=1e-2), #AUCPairwiseLoss(margin=0.8), #PrecisionLoss(), #torch.nn.BCELoss(),
+                                                                          contribution_criterion=0.8,
+                                                                          device=config.get_value("TRAIN_DEVICE"),
+                                                                          epochs=config.get_value("NUM_EPOCHS"),
+                                                                          config=config)
 
         plt.plot(range(len(train_history)), train_history, label=f"Training Loss fold: {fold_index + 1}")
         plt.plot(range(len(val_history)), val_history, label=f"Validation Loss fold: {fold_index + 1}")
@@ -173,7 +264,8 @@ def main():
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(os.path.join("results", config.get_value("VERSION"), f"{config.get_value('MODEL')}_Training_val_loss_metric_val_curves_{fold_index + 1}.png"))
+        plt.savefig(os.path.join("results", config.get_value("VERSION"),
+                                 f"{config.get_value('MODEL')}_Training_val_loss_metric_val_curves_{fold_index + 1}.png"))
 
         # free up ram and vram
         del model

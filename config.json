@@ -18,7 +18,7 @@
   "VAL_SAMPLE_SIZE": 5000,
   "TRAIN_SPLIT": 0.90,
   "NUM_EPOCHS": 500,
-  "NUM_WORKERS": 8,
+  "NUM_WORKERS": 12,
   "PREFETCH_FACTOR": 2,
   "MODEL": "Vitb16MHA",
   "METADATA_FILES_PATH": "metadata_files",
@@ -29,9 +29,9 @@
   "TOTAL_TRAIN_SAMPLES": null,
   "PER_SAMPLE_AUGMENTATION": true,
   "METADATA_COLUMNS": "tbp_lv_A\ttbp_lv_Aext\ttbp_lv_B\ttbp_lv_Bext\ttbp_lv_C\ttbp_lv_Cext\ttbp_lv_H\ttbp_lv_Hext\ttbp_lv_L\ttbp_lv_Lext\ttbp_lv_areaMM2\ttbp_lv_area_perim_ratio\ttbp_lv_color_std_mean\ttbp_lv_deltaA\ttbp_lv_deltaB\ttbp_lv_deltaL\ttbp_lv_deltaLB\ttbp_lv_deltaLBnorm\ttbp_lv_eccentricity\ttbp_lv_minorAxisMM\ttbp_lv_nevi_confidence\ttbp_lv_norm_border\ttbp_lv_norm_color\ttbp_lv_perimeterMM\ttbp_lv_radial_color_std_max\ttbp_lv_stdL\ttbp_lv_stdLExt\ttbp_lv_symm_2axis\ttbp_lv_symm_2axis_angle\ttbp_lv_x\ttbp_lv_y\ttbp_lv_z",
-  "LEARNING_RATE": 1e-4,
+  "LEARNING_RATE": 4e-5,
   "TOLERANCE_EARLY_STOPPING": 5,
   "SAMPLE_PERCENTAGE": 0.25,
   "HYPER_PARAMETERS_PATH": "best_hyperparameters",
-  "VERSION": "0.1.4"
+  "VERSION": "0.1.6"
 }

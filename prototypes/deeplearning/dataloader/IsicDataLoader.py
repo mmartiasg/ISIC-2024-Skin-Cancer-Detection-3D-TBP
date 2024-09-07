@@ -85,18 +85,64 @@ class IsicDataLoaderMemory(torch.utils.data.Dataset):
 def metadata_transform(df, extra_files_path="metadata_files"):
     new_df = df.copy()
 
-    sex = new_df.sex.apply(lambda x: 0 if x == "male" else 1).values.astype(np.float32)
-    age_ratio_size_lesion = (sex * new_df["clin_size_long_diam_mm"] * new_df["tbp_lv_symm_2axis"]).values.astype(np.float32)
+    ratio_size_lesion = (new_df["clin_size_long_diam_mm"] * new_df["tbp_lv_symm_2axis"]).values.astype(np.float32)
     hue_contrast = np.abs((new_df['tbp_lv_H'] - new_df['tbp_lv_Hext']).values).astype(np.float32)
     luminance_contrast = np.abs((new_df['tbp_lv_L'] - new_df['tbp_lv_Lext']).values).astype(np.float32)
     lesion_color_difference = np.sqrt((new_df['tbp_lv_deltaA']**2 + new_df["tbp_lv_deltaB"]**2 + new_df['tbp_lv_deltaL']**2).values).astype(np.float32)
     border_complexity = (new_df['tbp_lv_norm_border'] + new_df['tbp_lv_symm_2axis']).values.astype(np.float32)
     color_uniformity = (new_df['tbp_lv_color_std_mean'] / (new_df['tbp_lv_radial_color_std_max'] + 1e-5)).values.astype(np.float32)
+    # confidence = (new_df['tbp_lv_nevi_confidence'] / new_df['age_approx']).values.astype(np.float32)
+    # age_ratio_size_mm2 = (new_df['age_approx'] * new_df['tbp_lv_areaMM2'] * new_df['tbp_lv_symm_2axis']).values.astype(np.float32)
+    angle = np.arctan2(new_df['tbp_lv_y'], new_df['tbp_lv_x']).values.astype(np.float32)
+    volume = (new_df['tbp_lv_x'] ** 2 + new_df['tbp_lv_y'] ** 2 + new_df['tbp_lv_z'] ** 2).values.astype(np.float32)
+    area_over_perimeter = (new_df['tbp_lv_areaMM2'] / new_df['tbp_lv_perimeterMM']).values.astype(np.float32)
+    symetry_border_ratio = (new_df['tbp_lv_symm_2axis'] * new_df['tbp_lv_norm_border'] / (new_df['tbp_lv_symm_2axis'] + new_df['tbp_lv_norm_border'])).values.astype(np.float32)
+    std_lv = (new_df['tbp_lv_stdL'] / new_df['tbp_lv_Lext']).values.astype(np.float32)
+    radial_color_over_area = (new_df['tbp_lv_radial_color_std_max'] * new_df['tbp_lv_symm_2axis']).values.astype(np.float32)
+    center_coordinates = ((new_df['tbp_lv_H'] + new_df['tbp_lv_Hext']) / 2).values.astype(np.float32)
+    luminance_over_hue_contrast = np.log(luminance_contrast / (hue_contrast + 1e-5))
+    lession_visibility_score = (new_df["tbp_lv_deltaLBnorm"] + new_df["tbp_lv_norm_color"]).values.astype(np.float32)
+    lesion_size_ratio = new_df["tbp_lv_minorAxisMM"] / new_df["clin_size_long_diam_mm"]
+    lesion_severity_index = ((new_df["tbp_lv_norm_border"] + new_df["tbp_lv_norm_color"] + new_df["tbp_lv_eccentricity"]) / 3).values.astype(np.float32)
+    log_lesion_area = np.log(new_df["tbp_lv_areaMM2"].values.astype(np.float32) + 1e-5)
+    comprehensive_lesion_index = (new_df["tbp_lv_area_perim_ratio"] + new_df["tbp_lv_eccentricity"] + new_df["tbp_lv_norm_color"] + new_df["tbp_lv_symm_2axis"]).values.astype(np.float32) / 4
+    shape_color_consistency = (new_df["tbp_lv_eccentricity"] * new_df["tbp_lv_color_std_mean"]).values.astype(np.float32)
+    # dage_size_symmetry_index2 = (new_df["age_approx"] * new_df["tbp_lv_areaMM2"] * new_df["tbp_lv_symm_2axis"]).values.astype(np.float32)
+    dcolor_shape_composite_index = (new_df["tbp_lv_color_std_mean"] + new_df["tbp_lv_area_perim_ratio"] + new_df[
+        "tbp_lv_symm_2axis"]).values.astype(np.float32) / 3
+    dcolor_range = ((new_df["tbp_lv_L"] - new_df["tbp_lv_Lext"]).abs() + (new_df["tbp_lv_A"] - new_df["tbp_lv_Aext"]).abs() + (
+                new_df["tbp_lv_B"] - new_df["tbp_lv_Bext"]).abs()).values.astype(np.float32)
+    volume_size_by_severity_ratio = (volume / (lesion_size_ratio+1e-5)) * lesion_severity_index
+    visibility_confidence_score = (new_df['tbp_lv_nevi_confidence'].values.astype(np.float32) * lession_visibility_score) / (new_df['tbp_lv_nevi_confidence'].values.astype(np.float32) + lession_visibility_score + 1e-5)
+    area_over_volume = new_df['tbp_lv_areaMM2'].values.astype(np.float32) / (volume + 1e-5)
+    border_complexity_over_volume = border_complexity / (volume + 1e-5)
+    comprehensive_lesion_index_over_area = comprehensive_lesion_index / new_df['tbp_lv_areaMM2'].values.astype(np.float32)
+    comprehensive_lesion_index_over_volume = comprehensive_lesion_index / (volume + 1e-5)
+    dcolor_range_over_color_uniformity = dcolor_range / (color_uniformity + 1e-5)
+    ration_size_over_severity_index = ratio_size_lesion / (lesion_severity_index + 1e-5)
+    shape_color_consistency_over_area = shape_color_consistency / new_df['tbp_lv_areaMM2'].values.astype(np.float32)
+
 
     ids = new_df['isic_id']
 
-    features = np.vstack([age_ratio_size_lesion, hue_contrast, luminance_contrast, lesion_color_difference,
-                          border_complexity, color_uniformity]).astype(np.float32).transpose(1, 0)
+    # features = np.vstack([age_ratio_size_lesion, hue_contrast, luminance_contrast,
+    #                       lesion_color_difference, border_complexity, color_uniformity,
+    #                       confidence, age_ratio_size_mm2, angle, volume,
+    #                       area_over_perimeter, symetry_border_ratio, std_lv,
+    #                       radial_color_over_area, center_coordinates, luminance_over_hue_contrast,
+    #                       lession_visibility_score, lesion_size_ratio, lesion_severity_index,
+    #                       log_lesion_area, lesion_size_ratio, comprehensive_lesion_index,
+    #                       shape_color_consistency, dage_size_symmetry_index2, dcolor_shape_composite_index,
+    #                       dcolor_range, volume_size_by_severity_ratio]).astype(np.float32).transpose(1, 0)
+
+    features = np.vstack([ratio_size_lesion, hue_contrast, luminance_contrast,
+                          lesion_color_difference, border_complexity, color_uniformity, angle, volume, shape_color_consistency_over_area,
+                          area_over_perimeter, symetry_border_ratio, std_lv, ration_size_over_severity_index,
+                          radial_color_over_area, center_coordinates, luminance_over_hue_contrast, dcolor_range_over_color_uniformity,
+                          lession_visibility_score, lesion_size_ratio, lesion_severity_index, comprehensive_lesion_index_over_volume,
+                          log_lesion_area, lesion_size_ratio, comprehensive_lesion_index, comprehensive_lesion_index_over_area,
+                          shape_color_consistency, dcolor_shape_composite_index, border_complexity_over_volume,
+                          dcolor_range, volume_size_by_severity_ratio, visibility_confidence_score, area_over_volume]).astype(np.float32).transpose(1, 0)
 
     if os.path.exists(extra_files_path):
         mean = np.load(os.path.join(extra_files_path, "mean.npy"))
